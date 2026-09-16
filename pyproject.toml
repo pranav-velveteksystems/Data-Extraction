@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "size-spec-extractor"
+version = "0.1.0"
+description = "Hybrid OpenCV + OCR pipeline for garment size specification sheets"
+authors = [{ name = "Data Extraction Team" }]
+readme = "PROJECT.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "pillow",
+    "pytesseract",
+]
+
+[project.scripts]
+size-spec-extract = "size_spec_extractor.main:main"
+
+[tool.ruff.lint]
+ignore = ["BLE001"]

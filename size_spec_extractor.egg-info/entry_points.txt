@@ -1,0 +1,2 @@
+[console_scripts]
+size-spec-extract = size_spec_extractor.main:main
