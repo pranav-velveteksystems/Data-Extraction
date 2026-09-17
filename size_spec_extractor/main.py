@@ -19,6 +19,17 @@ from .extractor import (
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
+    if args is None:
+        args = sys.argv[1:]
+
+    # Normalize /boost, -boost into --boost
+    normalized_args: list[str] = []
+    for a in args:
+        if a in ("/boost", "-boost"):
+            normalized_args.append("--boost")
+        else:
+            normalized_args.append(a)
+
     parser = argparse.ArgumentParser(
         description="Garment Size Specification Table Extractor - Detects and segments the size spec table into box images."
     )
@@ -29,6 +40,20 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="IMAGE",
         help="Path to garment specification sheet image (positional argument)",
+    )
+    parser.add_argument(
+        "--boost",
+        "-boost",
+        dest="boost",
+        action="store_true",
+        default=True,
+        help="Enable detecting internal cell values, centering them in each block, and reconstructing new table image (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-boost",
+        dest="boost",
+        action="store_false",
+        help="Disable cell value centering and reconstructed table image generation.",
     )
     parser.add_argument(
         "--image",
@@ -58,6 +83,19 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         dest="table_filename",
         default="table.png",
         help="Filename for the main table image inside output directory (default: 'table.png').",
+    )
+    parser.add_argument(
+        "--reconstructed-table-filename",
+        "--reconstructed-filename",
+        dest="reconstructed_table_filename",
+        default="reconstructed_table.png",
+        help="Filename for the reconstructed table image inside output directory (default: 'reconstructed_table.png').",
+    )
+    parser.add_argument(
+        "--output-reconstructed-image",
+        "--output-reconstructed",
+        dest="output_reconstructed_image",
+        help="Optional path to save standalone reconstructed table image file.",
     )
     parser.add_argument(
         "--cell-format",
@@ -103,7 +141,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help=argparse.SUPPRESS,
     )
 
-    parsed = parser.parse_args(args)
+    parsed = parser.parse_args(normalized_args)
     image_path = parsed.image_pos or parsed.image_flag
     if not image_path:
         parser.error(
@@ -224,6 +262,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         print(f"[*] Processing image: {image_path}")
         table_fname = args.table_filename or "table.png"
+        is_boost = getattr(args, "boost", True)
+        if is_boost:
+            recon_fname = (
+                getattr(args, "reconstructed_table_filename", "reconstructed_table.png")
+                or "reconstructed_table.png"
+            )
+        else:
+            recon_fname = None
         cell_fmt = (args.cell_format or "png").lstrip(".")
         result = extract_table_segments(
             image_input=image_path,
@@ -231,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
             config=config,
             table_filename=table_fname,
             cell_format=cell_fmt,
+            reconstructed_table_filename=recon_fname,
         )
 
         # Save standalone image file if needed (e.g. for CLI compatibility)
@@ -239,6 +286,11 @@ def main(argv: list[str] | None = None) -> int:
             abs_table = os.path.abspath(result.table_image_path or "")
             if abs_standalone != abs_table:
                 save_table_image(result.table_image, standalone_image_path)
+
+        # Save standalone reconstructed image file if requested
+        standalone_recon = getattr(args, "output_reconstructed_image", None)
+        if standalone_recon and result.reconstructed_table_image is not None:
+            save_table_image(result.reconstructed_table_image, standalone_recon)
 
         grid = result.grid
         roi = result.table_roi
@@ -257,9 +309,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"    - Output Folder: {saved_abs}")
         print(f"    - Main Table Image: {os.path.join(saved_abs, table_fname)}")
+        if result.reconstructed_table_path:
+            print(f"    - Reconstructed Table Image: {result.reconstructed_table_path}")
         if standalone_image_path:
             print(
                 f"    - Saved table image to: {os.path.abspath(standalone_image_path)}"
+            )
+        if standalone_recon:
+            print(
+                f"    - Saved reconstructed table image to: {os.path.abspath(standalone_recon)}"
             )
         print(
             f"    - Segmented Cell Images: {total_cells} box images saved as [0][0].{cell_fmt} ... [{grid.num_rows - 1}][{grid.num_cols - 1}].{cell_fmt}"

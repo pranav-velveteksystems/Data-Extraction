@@ -27,6 +27,8 @@ class Cell:
     bbox: tuple[int, int, int, int]  # (x1, y1, x2, y2) relative to table
     raw_crop: np.ndarray
     interior_crop: np.ndarray | None = None
+    centered_crop: np.ndarray | None = None
+    value_bbox: tuple[int, int, int, int] | None = None
     is_empty: bool = False
     text_regions: list[TextRegion] = field(default_factory=list)
     raw_texts: list[str] = field(default_factory=list)

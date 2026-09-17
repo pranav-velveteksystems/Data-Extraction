@@ -1,11 +1,10 @@
 """Unit tests for line detection, merging, and grid geometry reconstruction."""
 
+import os
 import unittest
 
 import cv2
 import numpy as np
-
-import os
 
 from size_spec_extractor.config import LineDetectionConfig, TableDetectionConfig
 from size_spec_extractor.detection.grid_detector import (
@@ -116,11 +115,15 @@ class TestDetection(unittest.TestCase):
     def test_ensure_table_boundaries_dense_rows(self):
         # In a dense table (20px rows), a missing outer boundary should not destroy row 0 or row N
         lines_missing_top = [20, 40, 60, 80, 100]
-        res_top = ensure_table_boundaries(lines_missing_top, dimension_size=100, min_cell_size=14)
+        res_top = ensure_table_boundaries(
+            lines_missing_top, dimension_size=100, min_cell_size=14
+        )
         self.assertEqual(res_top, [0, 20, 40, 60, 80, 100])
 
         lines_missing_bottom = [0, 25, 50, 75]
-        res_bot = ensure_table_boundaries(lines_missing_bottom, dimension_size=100, min_cell_size=14)
+        res_bot = ensure_table_boundaries(
+            lines_missing_bottom, dimension_size=100, min_cell_size=14
+        )
         self.assertEqual(res_bot, [0, 25, 50, 75, 100])
 
     def test_image1_image2_image3_all_correct_grid(self):

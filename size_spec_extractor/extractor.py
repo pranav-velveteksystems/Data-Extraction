@@ -14,6 +14,11 @@ from PIL import Image
 
 from .cells.border_remover import remove_borders
 from .cells.cell_generator import Cell, create_cells
+from .cells.centering import (
+    center_cell_value,
+    detect_cell_value,
+    reconstruct_table_from_cells,
+)
 from .cells.text_region import detect_text_regions, is_empty_cell
 from .config import ExtractorConfig
 from .detection.grid_detector import GridGeometry, detect_grid
@@ -121,6 +126,9 @@ class TableSegmentationResult:
     output_dir: str | None = None
     table_image_path: str | None = None
     cell_image_paths: dict[tuple[int, int], str] = field(default_factory=dict)
+    reconstructed_table_image: np.ndarray | None = None
+    reconstructed_table_path: str | None = None
+    centered_cells: list[list[Cell]] | None = None
 
     def __iter__(self):
         yield self.table_image
@@ -142,6 +150,13 @@ class TableSegmentationResult:
                 "grid": self.grid,
                 "output_dir": self.output_dir,
                 "table_image_path": self.table_image_path,
+                "reconstructed_table": self.reconstructed_table_image,
+                "reconstructed_table_image": self.reconstructed_table_image,
+                "reconstructed_table_path": self.reconstructed_table_path,
+                "centered_table": self.reconstructed_table_image,
+                "centered_table_image": self.reconstructed_table_image,
+                "centered_table_path": self.reconstructed_table_path,
+                "centered_cells": self.cells,
             }
             if key in str_map:
                 return str_map[key]
@@ -174,6 +189,13 @@ class TableSegmentationResult:
                 "grid",
                 "output_dir",
                 "table_image_path",
+                "reconstructed_table",
+                "reconstructed_table_image",
+                "reconstructed_table_path",
+                "centered_table",
+                "centered_table_image",
+                "centered_table_path",
+                "centered_cells",
             }
         return item in (self.table_image, self.cells, self.table_roi, self.grid)
 
@@ -188,6 +210,14 @@ class TableSegmentationResult:
     @property
     def total_cells(self) -> int:
         return self.num_rows * self.num_cols
+
+    @property
+    def centered_table_image(self) -> np.ndarray | None:
+        return self.reconstructed_table_image
+
+    @property
+    def centered_table_path(self) -> str | None:
+        return self.reconstructed_table_path
 
     def get_cell(self, row: int, col: int) -> Cell:
         """Get cell by (row, col) indices."""
@@ -206,11 +236,28 @@ class TableSegmentationResult:
         """Get saved image file path for cell at (row, col)."""
         return self.cell_image_paths.get((row, col))
 
+    def get_centered_cell(self, row: int, col: int) -> Cell:
+        """Get cell containing centered_crop at (row, col)."""
+        return self.cells[row][col]
+
+    def get_centered_cell_crop(self, row: int, col: int) -> np.ndarray:
+        """Get centered cropped image for cell at (row, col)."""
+        cell = self.get_cell(row, col)
+        crop = getattr(cell, "centered_crop", None)
+        if crop is not None:
+            return crop
+        return cell.raw_crop if hasattr(cell, "raw_crop") else cell
+
+    def get_centered_cell_image(self, row: int, col: int) -> np.ndarray:
+        """Alias for get_centered_cell_crop."""
+        return self.get_centered_cell_crop(row, col)
+
     def to_dict(self) -> dict[str, Any]:
         """Export segmentation metadata as dictionary."""
         return {
             "output_dir": self.output_dir,
             "table_image_path": self.table_image_path,
+            "reconstructed_table_path": self.reconstructed_table_path,
             "num_rows": self.num_rows,
             "num_cols": self.num_cols,
             "total_cells": self.total_cells,
@@ -227,12 +274,14 @@ def save_table_segments(
     output_dir: str | Path,
     table_filename: str = "table.png",
     cell_format: str = "png",
+    reconstructed_table_filename: str = "reconstructed_table.png",
 ) -> dict[str, str]:
-    """Save the main table image and individual cell crops into an output folder.
+    """Save the main table image, individual cell crops, and reconstructed centered table into an output folder.
 
     Files are named:
     - Main table: <table_filename> (e.g. 'table.png')
     - Cell crops: '[r][c].png' matching the 2D row/column grid indices.
+    - Reconstructed table: <reconstructed_table_filename> (e.g. 'reconstructed_table.png')
 
     Args:
         table_image: Extracted table image as numpy BGR array or PIL Image.
@@ -240,9 +289,10 @@ def save_table_segments(
         output_dir: Target directory path.
         table_filename: Filename for the main table image (default 'table.png').
         cell_format: Extension for cell crops without leading dot (default 'png').
+        reconstructed_table_filename: Filename for reconstructed table image (default 'reconstructed_table.png').
 
     Returns:
-        Dictionary mapping identifiers ('table', '[r][c]') to absolute file paths.
+        Dictionary mapping identifiers ('table', '[r][c]', 'reconstructed_table') to absolute file paths.
     """
     if table_image is None:
         raise ValueError("Cannot save empty or None table image.")
@@ -293,6 +343,8 @@ def save_table_segments(
     # Save segmented cell boxes as 2D array names: [0][0].png, [0][1].png, ...
     for r, c, item in cell_items:
         crop = getattr(item, "raw_crop", item)
+        if crop is None:
+            crop = getattr(item, "centered_crop", None)
         if isinstance(crop, Image.Image):
             crop = cv2.cvtColor(np.array(crop.convert("RGB")), cv2.COLOR_RGB2BGR)
 
@@ -310,6 +362,26 @@ def save_table_segments(
             raise OSError(f"Failed to write cell image to: {cell_file_path}")
         saved_paths[f"[{r}][{c}]"] = os.path.abspath(cell_file_path)
 
+    # Reconstruct and save new table image assembled from centered blocks
+    if reconstructed_table_filename:
+        try:
+            recon_img = reconstruct_table_from_cells(
+                cells,
+                table_shape=table_img_arr.shape[:2],
+                center_cells=True,
+                table_image=table_img_arr,
+            )
+            recon_file_path = os.path.join(abs_out_dir, reconstructed_table_filename)
+            success_recon = cv2.imwrite(recon_file_path, recon_img)
+            if success_recon:
+                abs_recon = os.path.abspath(recon_file_path)
+                saved_paths["reconstructed_table"] = abs_recon
+                saved_paths["reconstructed_table_image"] = abs_recon
+                saved_paths["centered_table"] = abs_recon
+                saved_paths["centered_table_image"] = abs_recon
+        except (ValueError, OSError, cv2.error):
+            pass
+
     return saved_paths
 
 
@@ -319,8 +391,9 @@ def extract_table_segments(
     config: ExtractorConfig | None = None,
     table_filename: str = "table.png",
     cell_format: str = "png",
+    reconstructed_table_filename: str = "reconstructed_table.png",
 ) -> TableSegmentationResult:
-    """Detect table, extract grid geometry, and segment individual cells into a folder.
+    """Detect table, extract grid geometry, center block values, and reconstruct new table image.
 
     Args:
         image_input: Path to image file, numpy BGR/grayscale array, or PIL Image.
@@ -328,6 +401,7 @@ def extract_table_segments(
         config: Optional ExtractorConfig instance.
         table_filename: Name of the main table image file inside output_dir (default 'table.png').
         cell_format: Extension for cell crops without leading dot (default 'png').
+        reconstructed_table_filename: Name of the reconstructed table image (default 'reconstructed_table.png').
 
     Returns:
         TableSegmentationResult containing table_image, cells, table_roi, grid, and saved paths.
@@ -364,7 +438,42 @@ def extract_table_segments(
     cells = create_cells(table_img, grid)
     debugger.stage_07_cells(table_img, cells)
 
+    # Detect internal value and center it in the middle of each block
+    for r in range(grid.num_rows):
+        for c in range(grid.num_cols):
+            cell = cells[r][c]
+            # Skip centering for blocks [0][0] to [0][12] (row 0) and all [n][0] (col 0)
+            if r == 0 or c == 0:
+                cell.value_bbox = None
+                cell.centered_crop = (
+                    cell.raw_crop.copy()
+                    if hasattr(cell.raw_crop, "copy")
+                    else cell.raw_crop
+                )
+            else:
+                cell.value_bbox = detect_cell_value(
+                    cell.raw_crop,
+                    config=config.cell_processing if config else None,
+                )
+                cell.centered_crop = center_cell_value(
+                    cell.raw_crop,
+                    config=config.cell_processing if config else None,
+                    is_header=False,
+                    row=r,
+                    col=c,
+                )
+
+    # Reconstruct new table image assembled from centered blocks
+    reconstructed_table_img = reconstruct_table_from_cells(
+        cells,
+        grid=grid,
+        table_shape=(table_img.shape[0], table_img.shape[1]),
+        config=config.cell_processing if config else None,
+        table_image=table_img,
+    )
+
     table_path = None
+    recon_path = None
     cell_paths: dict[tuple[int, int], str] = {}
     abs_out_dir = None
 
@@ -376,8 +485,10 @@ def extract_table_segments(
             output_dir,
             table_filename=table_filename,
             cell_format=cell_format,
+            reconstructed_table_filename=reconstructed_table_filename,
         )
         table_path = saved_dict.get("table")
+        recon_path = saved_dict.get("reconstructed_table")
         for r, row in enumerate(cells):
             for c, item in enumerate(row):
                 cell_r = getattr(item, "row", r)
@@ -394,6 +505,9 @@ def extract_table_segments(
         output_dir=abs_out_dir,
         table_image_path=table_path,
         cell_image_paths=cell_paths,
+        reconstructed_table_image=reconstructed_table_img,
+        reconstructed_table_path=recon_path,
+        centered_cells=cells,
     )
 
 
@@ -447,6 +561,36 @@ def extract_table_image(
     return table_roi.image, table_roi
 
 
+def extract_reconstructed_table_image(
+    image_input: str | Path | np.ndarray | Image.Image,
+    output_path: str | Path | None = None,
+    config: ExtractorConfig | None = None,
+    output_dir: str | Path | None = None,
+    reconstructed_table_filename: str = "reconstructed_table.png",
+) -> tuple[np.ndarray, TableROI]:
+    """Detect table, center all cell values, and return the reconstructed table image.
+
+    Args:
+        image_input: Path to image file, numpy BGR/grayscale array, or PIL Image.
+        output_path: Optional file path where reconstructed table image will be saved.
+        config: Optional ExtractorConfig instance.
+        output_dir: Optional directory path where segments and table images will be saved.
+        reconstructed_table_filename: Name of reconstructed table file in output_dir.
+
+    Returns:
+        tuple of (reconstructed_table_image, table_roi)
+    """
+    res = extract_table_segments(
+        image_input,
+        output_dir=output_dir,
+        config=config,
+        reconstructed_table_filename=reconstructed_table_filename,
+    )
+    if output_path is not None and res.reconstructed_table_image is not None:
+        save_table_image(res.reconstructed_table_image, output_path)
+    return res.reconstructed_table_image, res.table_roi  # type: ignore
+
+
 class SizeSpecExtractor:
     """Complete CV + OCR pipeline for Garment Size Specification Sheets."""
 
@@ -493,6 +637,7 @@ class SizeSpecExtractor:
         output_dir: str | Path | None = None,
         table_filename: str = "table.png",
         cell_format: str = "png",
+        reconstructed_table_filename: str = "reconstructed_table.png",
     ) -> TableSegmentationResult:
         """Extract size spec table and segment all grid cells, saving to output_dir if specified."""
         return extract_table_segments(
@@ -500,6 +645,7 @@ class SizeSpecExtractor:
             output_dir=output_dir,
             table_filename=table_filename,
             cell_format=cell_format,
+            reconstructed_table_filename=reconstructed_table_filename,
             config=self.config,
         )
 
@@ -509,6 +655,7 @@ class SizeSpecExtractor:
         output_dir: str | Path | None = None,
         table_filename: str = "table.png",
         cell_format: str = "png",
+        reconstructed_table_filename: str = "reconstructed_table.png",
     ) -> TableSegmentationResult:
         """Alias for extract_segments."""
         return self.extract_segments(
@@ -516,6 +663,39 @@ class SizeSpecExtractor:
             output_dir=output_dir,
             table_filename=table_filename,
             cell_format=cell_format,
+            reconstructed_table_filename=reconstructed_table_filename,
+        )
+
+    def extract_reconstructed_table(
+        self,
+        image_input: str | Path | np.ndarray | Image.Image,
+        output_path: str | Path | None = None,
+        output_dir: str | Path | None = None,
+        reconstructed_table_filename: str = "reconstructed_table.png",
+    ) -> tuple[np.ndarray, TableROI]:
+        """Detect table, center all cell values, and return the reconstructed table image."""
+        result = self.extract_segments(
+            image_input,
+            output_dir=output_dir,
+            reconstructed_table_filename=reconstructed_table_filename,
+        )
+        if output_path is not None and result.reconstructed_table_image is not None:
+            save_table_image(result.reconstructed_table_image, output_path)
+        return result.reconstructed_table_image, result.table_roi  # type: ignore
+
+    def extract_centered_table(
+        self,
+        image_input: str | Path | np.ndarray | Image.Image,
+        output_path: str | Path | None = None,
+        output_dir: str | Path | None = None,
+        reconstructed_table_filename: str = "reconstructed_table.png",
+    ) -> tuple[np.ndarray, TableROI]:
+        """Alias for extract_reconstructed_table."""
+        return self.extract_reconstructed_table(
+            image_input,
+            output_path=output_path,
+            output_dir=output_dir,
+            reconstructed_table_filename=reconstructed_table_filename,
         )
 
     def extract_table(
