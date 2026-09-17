@@ -98,11 +98,53 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="Optional path to save standalone reconstructed table image file.",
     )
     parser.add_argument(
+        "--header-box-filename",
+        dest="header_box_filename",
+        default="header_box.png",
+        help="Filename for the extracted top metadata box inside output directory (default: 'header_box.png').",
+    )
+    parser.add_argument(
+        "--output-header-box-image",
+        "--output-header-box",
+        dest="output_header_box_image",
+        help="Optional path to save standalone extracted top metadata box image file.",
+    )
+    parser.add_argument(
+        "--header-box",
+        "--metadata-box",
+        dest="header_box_enabled",
+        action="store_true",
+        default=True,
+        help="Enable extraction of the top metadata rectangle (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-header-box",
+        "--no-metadata-box",
+        dest="header_box_enabled",
+        action="store_false",
+        help="Disable extraction of the top metadata rectangle.",
+    )
+    parser.add_argument(
+        "--header-box-mode",
+        dest="header_box_mode",
+        choices=["auto", "metadata", "full", "manual"],
+        default="auto",
+        help="Mode for top rectangle extraction ('auto', 'metadata', 'full', 'manual').",
+    )
+    parser.add_argument(
+        "--manual-header-bbox",
+        nargs=4,
+        type=int,
+        metavar=("X1", "Y1", "X2", "Y2"),
+        help="Manual top rectangle bounding box: x1 y1 x2 y2",
+    )
+    parser.add_argument(
         "--cell-format",
         dest="cell_format",
         default="png",
         help="Image format/extension for cropped cell box images (default: 'png').",
     )
+
     parser.add_argument(
         "--config",
         "-c",
@@ -180,7 +222,18 @@ def main(argv: list[str] | None = None) -> int:
         config.table_detection.mode = "manual"
         config.table_detection.manual_bbox = tuple(args.manual_bbox)
 
+    if hasattr(args, "header_box_enabled"):
+        config.header_box.enabled = args.header_box_enabled
+    if hasattr(args, "header_box_mode") and args.header_box_mode:
+        config.header_box.mode = args.header_box_mode
+    if hasattr(args, "manual_header_bbox") and args.manual_header_bbox:
+        config.header_box.mode = "manual"
+        config.header_box.manual_bbox = tuple(args.manual_header_bbox)
+    if hasattr(args, "header_box_filename") and args.header_box_filename:
+        config.header_box.filename = args.header_box_filename
+
     # Determine output folder and standalone image path
+
     image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"}
 
     output_dir: str
@@ -271,6 +324,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             recon_fname = None
         cell_fmt = (args.cell_format or "png").lstrip(".")
+        hdr_fname = (
+            getattr(args, "header_box_filename", "header_box.png") or "header_box.png"
+        )
         result = extract_table_segments(
             image_input=image_path,
             output_dir=output_dir,
@@ -278,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
             table_filename=table_fname,
             cell_format=cell_fmt,
             reconstructed_table_filename=recon_fname,
+            header_box_filename=hdr_fname,
         )
 
         # Save standalone image file if needed (e.g. for CLI compatibility)
@@ -289,8 +346,13 @@ def main(argv: list[str] | None = None) -> int:
 
         # Save standalone reconstructed image file if requested
         standalone_recon = getattr(args, "output_reconstructed_image", None)
-        if standalone_recon and result.reconstructed_table_image is not None:
-            save_table_image(result.reconstructed_table_image, standalone_recon)
+        if standalone_recon and result.reconstructed_table_with_header is not None:
+            save_table_image(result.reconstructed_table_with_header, standalone_recon)
+
+        # Save standalone header box image file if requested
+        standalone_hdr = getattr(args, "output_header_box_image", None)
+        if standalone_hdr and result.header_box_image is not None:
+            save_table_image(result.header_box_image, standalone_hdr)
 
         grid = result.grid
         roi = result.table_roi
@@ -304,6 +366,10 @@ def main(argv: list[str] | None = None) -> int:
             f"(x1={roi.x1}, y1={roi.y1}, x2={roi.x2}, y2={roi.y2})"
         )
         print(f"    - Table Dimensions: {roi.width} x {roi.height} px")
+        if result.header_box_path:
+            print(f"    - Top Metadata Box Image: {result.header_box_path}")
+        if result.header_box_bbox:
+            print(f"    - Top Box Bounding Box: {result.header_box_bbox}")
         print(
             f"    - Grid Dimensions: {grid.num_rows} rows x {grid.num_cols} columns ({total_cells} cells)"
         )
@@ -319,9 +385,14 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"    - Saved reconstructed table image to: {os.path.abspath(standalone_recon)}"
             )
+        if standalone_hdr:
+            print(
+                f"    - Saved top metadata box image to: {os.path.abspath(standalone_hdr)}"
+            )
         print(
             f"    - Segmented Cell Images: {total_cells} box images saved as [0][0].{cell_fmt} ... [{grid.num_rows - 1}][{grid.num_cols - 1}].{cell_fmt}"
         )
+
         return 0
     except Exception as e:
         print(f"[!] Extraction failed: {e}", file=sys.stderr)

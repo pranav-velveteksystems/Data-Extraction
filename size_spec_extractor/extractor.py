@@ -22,6 +22,11 @@ from .cells.centering import (
 from .cells.text_region import detect_text_regions, is_empty_cell
 from .config import ExtractorConfig
 from .detection.grid_detector import GridGeometry, detect_grid
+from .detection.header_detector import (
+    HeaderROI,
+    attach_header_to_table,
+    detect_header_box,
+)
 from .detection.table_detector import TableROI, detect_table
 from .ocr.engine import BaseOCREngine, get_ocr_engine
 from .ocr.header_ocr import HeaderOCR
@@ -129,6 +134,11 @@ class TableSegmentationResult:
     reconstructed_table_image: np.ndarray | None = None
     reconstructed_table_path: str | None = None
     centered_cells: list[list[Cell]] | None = None
+    header_box_image: np.ndarray | None = None
+    header_box_path: str | None = None
+    header_box_bbox: tuple[int, int, int, int] | None = None
+    header_roi: HeaderROI | None = None
+    reconstructed_table_with_header_image: np.ndarray | None = None
 
     def __iter__(self):
         yield self.table_image
@@ -153,10 +163,29 @@ class TableSegmentationResult:
                 "reconstructed_table": self.reconstructed_table_image,
                 "reconstructed_table_image": self.reconstructed_table_image,
                 "reconstructed_table_path": self.reconstructed_table_path,
+                "reconstructed_table_with_header": self.reconstructed_table_with_header,
+                "reconstructed_table_with_header_image": self.reconstructed_table_with_header,
+                "stacked_table": self.reconstructed_table_with_header,
+                "stacked_table_image": self.reconstructed_table_with_header,
                 "centered_table": self.reconstructed_table_image,
                 "centered_table_image": self.reconstructed_table_image,
                 "centered_table_path": self.reconstructed_table_path,
                 "centered_cells": self.cells,
+                "header_box": self.header_box_image,
+                "header_box_image": self.header_box_image,
+                "header_box_path": self.header_box_path,
+                "header_box_bbox": self.header_box_bbox,
+                "header_roi": self.header_roi,
+                "metadata_box": self.header_box_image,
+                "metadata_box_image": self.header_box_image,
+                "metadata_box_path": self.header_box_path,
+                "metadata_box_bbox": self.header_box_bbox,
+                "top_rectangle": self.header_box_image,
+                "top_rectangle_image": self.header_box_image,
+                "top_rectangle_path": self.header_box_path,
+                "top_box": self.header_box_image,
+                "top_box_image": self.header_box_image,
+                "top_box_path": self.header_box_path,
             }
             if key in str_map:
                 return str_map[key]
@@ -192,10 +221,29 @@ class TableSegmentationResult:
                 "reconstructed_table",
                 "reconstructed_table_image",
                 "reconstructed_table_path",
+                "reconstructed_table_with_header",
+                "reconstructed_table_with_header_image",
+                "stacked_table",
+                "stacked_table_image",
                 "centered_table",
                 "centered_table_image",
                 "centered_table_path",
                 "centered_cells",
+                "header_box",
+                "header_box_image",
+                "header_box_path",
+                "header_box_bbox",
+                "header_roi",
+                "metadata_box",
+                "metadata_box_image",
+                "metadata_box_path",
+                "metadata_box_bbox",
+                "top_rectangle",
+                "top_rectangle_image",
+                "top_rectangle_path",
+                "top_box",
+                "top_box_image",
+                "top_box_path",
             }
         return item in (self.table_image, self.cells, self.table_roi, self.grid)
 
@@ -218,6 +266,44 @@ class TableSegmentationResult:
     @property
     def centered_table_path(self) -> str | None:
         return self.reconstructed_table_path
+
+    @property
+    def metadata_box_image(self) -> np.ndarray | None:
+        return self.header_box_image
+
+    @property
+    def metadata_box_path(self) -> str | None:
+        return self.header_box_path
+
+    @property
+    def metadata_box_bbox(self) -> tuple[int, int, int, int] | None:
+        return self.header_box_bbox
+
+    @property
+    def top_rectangle_image(self) -> np.ndarray | None:
+        return self.header_box_image
+
+    @property
+    def top_rectangle_path(self) -> str | None:
+        return self.header_box_path
+
+    @property
+    def top_box_image(self) -> np.ndarray | None:
+        return self.header_box_image
+
+    @property
+    def top_box_path(self) -> str | None:
+        return self.header_box_path
+
+    @property
+    def reconstructed_table_with_header(self) -> np.ndarray | None:
+        if self.reconstructed_table_with_header_image is not None:
+            return self.reconstructed_table_with_header_image
+        return self.reconstructed_table_image
+
+    @property
+    def stacked_table_image(self) -> np.ndarray | None:
+        return self.reconstructed_table_with_header
 
     def get_cell(self, row: int, col: int) -> Cell:
         """Get cell by (row, col) indices."""
@@ -258,6 +344,10 @@ class TableSegmentationResult:
             "output_dir": self.output_dir,
             "table_image_path": self.table_image_path,
             "reconstructed_table_path": self.reconstructed_table_path,
+            "header_box_path": self.header_box_path,
+            "header_box_bbox": self.header_box_bbox,
+            "metadata_box_path": self.header_box_path,
+            "metadata_box_bbox": self.header_box_bbox,
             "num_rows": self.num_rows,
             "num_cols": self.num_cols,
             "total_cells": self.total_cells,
@@ -275,6 +365,12 @@ def save_table_segments(
     table_filename: str = "table.png",
     cell_format: str = "png",
     reconstructed_table_filename: str = "reconstructed_table.png",
+    header_box_image: np.ndarray | Image.Image | None = None,
+    header_box_filename: str = "header_box.png",
+    metadata_box_filename: str = "metadata_box.png",
+    attach_header_to_reconstructed: bool = True,
+    divider_thickness: int = 0,
+    divider_color: tuple[int, int, int] = (0, 0, 0),
 ) -> dict[str, str]:
     """Save the main table image, individual cell crops, and reconstructed centered table into an output folder.
 
@@ -282,6 +378,7 @@ def save_table_segments(
     - Main table: <table_filename> (e.g. 'table.png')
     - Cell crops: '[r][c].png' matching the 2D row/column grid indices.
     - Reconstructed table: <reconstructed_table_filename> (e.g. 'reconstructed_table.png')
+    - Header/metadata box: <header_box_filename> (e.g. 'header_box.png')
 
     Args:
         table_image: Extracted table image as numpy BGR array or PIL Image.
@@ -290,9 +387,13 @@ def save_table_segments(
         table_filename: Filename for the main table image (default 'table.png').
         cell_format: Extension for cell crops without leading dot (default 'png').
         reconstructed_table_filename: Filename for reconstructed table image (default 'reconstructed_table.png').
+        header_box_image: Optional extracted top metadata box image to save and attach.
+        header_box_filename: Filename for the top metadata box (default 'header_box.png').
+        metadata_box_filename: Filename for the metadata box alias (default 'metadata_box.png').
+        attach_header_to_reconstructed: If True, attaches the header box above the reconstructed table.
 
     Returns:
-        Dictionary mapping identifiers ('table', '[r][c]', 'reconstructed_table') to absolute file paths.
+        Dictionary mapping identifiers ('table', '[r][c]', 'reconstructed_table', 'header_box', 'metadata_box') to absolute file paths.
     """
     if table_image is None:
         raise ValueError("Cannot save empty or None table image.")
@@ -323,6 +424,32 @@ def save_table_segments(
     if not success:
         raise OSError(f"Failed to write table image to: {table_file_path}")
     saved_paths["table"] = os.path.abspath(table_file_path)
+
+    # Save extracted top metadata / header box if provided
+    if header_box_image is not None:
+        if isinstance(header_box_image, Image.Image):
+            hdr_arr = cv2.cvtColor(
+                np.array(header_box_image.convert("RGB")), cv2.COLOR_RGB2BGR
+            )
+        else:
+            hdr_arr = header_box_image
+
+        if getattr(hdr_arr, "size", 0) > 0:
+            hdr_name = header_box_filename or "header_box.png"
+            hdr_file_path = os.path.join(abs_out_dir, hdr_name)
+            success_hdr = cv2.imwrite(hdr_file_path, hdr_arr)
+            if success_hdr:
+                abs_hdr = os.path.abspath(hdr_file_path)
+                saved_paths["header_box"] = abs_hdr
+                saved_paths["header_box_image"] = abs_hdr
+
+            meta_name = metadata_box_filename or "metadata_box.png"
+            meta_file_path = os.path.join(abs_out_dir, meta_name)
+            if meta_file_path != hdr_file_path:
+                cv2.imwrite(meta_file_path, hdr_arr)
+            abs_meta = os.path.abspath(meta_file_path)
+            saved_paths["metadata_box"] = abs_meta
+            saved_paths["metadata_box_image"] = abs_meta
 
     # Normalize cells to list of (row, col, cell)
     cell_items: list[tuple[int, int, Any]] = []
@@ -371,6 +498,23 @@ def save_table_segments(
                 center_cells=True,
                 table_image=table_img_arr,
             )
+            # Attach top metadata rectangle to the top of reconstructed table if provided
+            if header_box_image is not None and attach_header_to_reconstructed:
+                hdr_arr = (
+                    cv2.cvtColor(
+                        np.array(header_box_image.convert("RGB")), cv2.COLOR_RGB2BGR
+                    )
+                    if isinstance(header_box_image, Image.Image)
+                    else header_box_image
+                )
+                if getattr(hdr_arr, "size", 0) > 0:
+                    recon_img = attach_header_to_table(
+                        recon_img,
+                        hdr_arr,
+                        divider_thickness=divider_thickness,
+                        divider_color=divider_color,
+                    )
+
             recon_file_path = os.path.join(abs_out_dir, reconstructed_table_filename)
             success_recon = cv2.imwrite(recon_file_path, recon_img)
             if success_recon:
@@ -392,6 +536,10 @@ def extract_table_segments(
     table_filename: str = "table.png",
     cell_format: str = "png",
     reconstructed_table_filename: str = "reconstructed_table.png",
+    header_box_filename: str = "header_box.png",
+    metadata_box_filename: str = "metadata_box.png",
+    extract_header_box_flag: bool = True,
+    attach_header_to_reconstructed: bool = True,
 ) -> TableSegmentationResult:
     """Detect table, extract grid geometry, center block values, and reconstruct new table image.
 
@@ -402,6 +550,10 @@ def extract_table_segments(
         table_filename: Name of the main table image file inside output_dir (default 'table.png').
         cell_format: Extension for cell crops without leading dot (default 'png').
         reconstructed_table_filename: Name of the reconstructed table image (default 'reconstructed_table.png').
+        header_box_filename: Filename for the top metadata box (default 'header_box.png').
+        metadata_box_filename: Filename for the metadata box alias (default 'metadata_box.png').
+        extract_header_box_flag: Whether to detect and extract the top metadata rectangle.
+        attach_header_to_reconstructed: Whether to attach the top metadata rectangle to the top of reconstructed table.
 
     Returns:
         TableSegmentationResult containing table_image, cells, table_roi, grid, and saved paths.
@@ -425,6 +577,12 @@ def extract_table_segments(
 
     table_roi: TableROI = detect_table(warped, config.table_detection)
     debugger.stage_03_table_detection(warped, table_roi.bbox)
+
+    # Detect top metadata rectangle containing Category, Style Code, Name
+    header_roi: HeaderROI | None = None
+    if extract_header_box_flag and (config is None or config.header_box.enabled):
+        header_cfg = config.header_box if config is not None else None
+        header_roi = detect_header_box(warped, table_roi.bbox, header_cfg)
 
     table_img = table_roi.image
 
@@ -472,8 +630,45 @@ def extract_table_segments(
         table_image=table_img,
     )
 
+    reconstructed_with_header_img = None
+    div_thick = config.header_box.divider_thickness if config else 0
+    div_col = config.header_box.divider_color if config else (0, 0, 0)
+    if (
+        header_roi is not None
+        and header_roi.image is not None
+        and getattr(header_roi.image, "size", 0) > 0
+    ):
+        reconstructed_with_header_img = attach_header_to_table(
+            reconstructed_table_img,
+            header_roi.image,
+            divider_thickness=div_thick,
+            divider_color=div_col,
+        )
+
+    should_stack_in_image = bool(
+        config is not None and config.header_box.attach_to_reconstructed_image
+    )
+    final_recon_img = (
+        reconstructed_with_header_img
+        if (should_stack_in_image and reconstructed_with_header_img is not None)
+        else reconstructed_table_img
+    )
+
+    hdr_fname = header_box_filename or (
+        config.header_box.filename if config else "header_box.png"
+    )
+    meta_fname = metadata_box_filename or (
+        config.header_box.metadata_filename if config else "metadata_box.png"
+    )
+    should_attach = (
+        attach_header_to_reconstructed
+        if (config is None or config.header_box.attach_to_reconstructed)
+        else False
+    )
+
     table_path = None
     recon_path = None
+    header_path = None
     cell_paths: dict[tuple[int, int], str] = {}
     abs_out_dir = None
 
@@ -486,9 +681,16 @@ def extract_table_segments(
             table_filename=table_filename,
             cell_format=cell_format,
             reconstructed_table_filename=reconstructed_table_filename,
+            header_box_image=header_roi.image if header_roi is not None else None,
+            header_box_filename=hdr_fname,
+            metadata_box_filename=meta_fname,
+            attach_header_to_reconstructed=should_attach,
+            divider_thickness=div_thick,
+            divider_color=div_col,
         )
         table_path = saved_dict.get("table")
         recon_path = saved_dict.get("reconstructed_table")
+        header_path = saved_dict.get("header_box")
         for r, row in enumerate(cells):
             for c, item in enumerate(row):
                 cell_r = getattr(item, "row", r)
@@ -505,9 +707,14 @@ def extract_table_segments(
         output_dir=abs_out_dir,
         table_image_path=table_path,
         cell_image_paths=cell_paths,
-        reconstructed_table_image=reconstructed_table_img,
+        reconstructed_table_image=final_recon_img,
         reconstructed_table_path=recon_path,
         centered_cells=cells,
+        header_box_image=header_roi.image if header_roi is not None else None,
+        header_box_path=header_path,
+        header_box_bbox=header_roi.bbox if header_roi is not None else None,
+        header_roi=header_roi,
+        reconstructed_table_with_header_image=reconstructed_with_header_img,
     )
 
 
@@ -567,6 +774,7 @@ def extract_reconstructed_table_image(
     config: ExtractorConfig | None = None,
     output_dir: str | Path | None = None,
     reconstructed_table_filename: str = "reconstructed_table.png",
+    attach_header: bool | None = None,
 ) -> tuple[np.ndarray, TableROI]:
     """Detect table, center all cell values, and return the reconstructed table image.
 
@@ -576,6 +784,7 @@ def extract_reconstructed_table_image(
         config: Optional ExtractorConfig instance.
         output_dir: Optional directory path where segments and table images will be saved.
         reconstructed_table_filename: Name of reconstructed table file in output_dir.
+        attach_header: Whether to attach top metadata box to reconstructed table.
 
     Returns:
         tuple of (reconstructed_table_image, table_roi)
@@ -586,9 +795,72 @@ def extract_reconstructed_table_image(
         config=config,
         reconstructed_table_filename=reconstructed_table_filename,
     )
-    if output_path is not None and res.reconstructed_table_image is not None:
-        save_table_image(res.reconstructed_table_image, output_path)
-    return res.reconstructed_table_image, res.table_roi  # type: ignore
+    should_attach = attach_header is True or (
+        attach_header is None
+        and config is not None
+        and config.header_box.attach_to_reconstructed_image
+    )
+    img = (
+        res.reconstructed_table_with_header
+        if should_attach
+        else res.reconstructed_table_image
+    )
+    if output_path is not None and img is not None:
+        save_table_image(img, output_path)
+    return img, res.table_roi  # type: ignore
+
+
+def extract_header_box_image(
+    image_input: str | Path | np.ndarray | Image.Image,
+    output_path: str | Path | None = None,
+    config: ExtractorConfig | None = None,
+    output_dir: str | Path | None = None,
+    table_bbox: tuple[int, int, int, int] | None = None,
+) -> tuple[np.ndarray | None, HeaderROI | None]:
+    """Detect and extract the top rectangle containing Category, Style Code, Name.
+
+    Args:
+        image_input: Path to image file, numpy BGR/grayscale array, or PIL Image.
+        output_path: Optional file path where extracted header box image will be saved.
+        config: Optional ExtractorConfig instance.
+        output_dir: Optional directory where header box image will be saved.
+        table_bbox: Optional table bounding box.
+
+    Returns:
+        tuple of (header_box_image, header_roi)
+    """
+    if config is None:
+        config = ExtractorConfig()
+
+    image = load_image(image_input)
+    if config.preprocessing.enable_perspective_correction:
+        warped, _corrected, _ = correct_perspective(
+            image, min_area_ratio=config.preprocessing.min_quad_area_ratio
+        )
+    else:
+        warped = image
+
+    tb = table_bbox
+    if tb is None:
+        roi = detect_table(warped, config.table_detection)
+        tb = roi.bbox
+
+    header_roi = detect_header_box(warped, tb, config.header_box)
+    header_img = header_roi.image if header_roi is not None else None
+
+    if output_path is not None and header_img is not None:
+        save_table_image(header_img, output_path)
+
+    if output_dir is not None and header_img is not None:
+        fname = config.header_box.filename or "header_box.png"
+        save_table_image(header_img, os.path.join(str(output_dir), fname))
+        if config.header_box.metadata_filename:
+            save_table_image(
+                header_img,
+                os.path.join(str(output_dir), config.header_box.metadata_filename),
+            )
+
+    return header_img, header_roi
 
 
 class SizeSpecExtractor:
@@ -666,12 +938,27 @@ class SizeSpecExtractor:
             reconstructed_table_filename=reconstructed_table_filename,
         )
 
+    def extract_header_box(
+        self,
+        image_input: str | Path | np.ndarray | Image.Image,
+        output_path: str | Path | None = None,
+        output_dir: str | Path | None = None,
+    ) -> tuple[np.ndarray | None, HeaderROI | None]:
+        """Detect and extract top metadata box containing Category, Style Code, Name."""
+        return extract_header_box_image(
+            image_input,
+            output_path=output_path,
+            config=self.config,
+            output_dir=output_dir,
+        )
+
     def extract_reconstructed_table(
         self,
         image_input: str | Path | np.ndarray | Image.Image,
         output_path: str | Path | None = None,
         output_dir: str | Path | None = None,
         reconstructed_table_filename: str = "reconstructed_table.png",
+        attach_header: bool | None = None,
     ) -> tuple[np.ndarray, TableROI]:
         """Detect table, center all cell values, and return the reconstructed table image."""
         result = self.extract_segments(
@@ -679,9 +966,18 @@ class SizeSpecExtractor:
             output_dir=output_dir,
             reconstructed_table_filename=reconstructed_table_filename,
         )
-        if output_path is not None and result.reconstructed_table_image is not None:
-            save_table_image(result.reconstructed_table_image, output_path)
-        return result.reconstructed_table_image, result.table_roi  # type: ignore
+        should_attach = attach_header is True or (
+            attach_header is None
+            and self.config.header_box.attach_to_reconstructed_image
+        )
+        img = (
+            result.reconstructed_table_with_header
+            if should_attach
+            else result.reconstructed_table_image
+        )
+        if output_path is not None and img is not None:
+            save_table_image(img, output_path)
+        return img, result.table_roi  # type: ignore
 
     def extract_centered_table(
         self,
@@ -689,6 +985,7 @@ class SizeSpecExtractor:
         output_path: str | Path | None = None,
         output_dir: str | Path | None = None,
         reconstructed_table_filename: str = "reconstructed_table.png",
+        attach_header: bool | None = None,
     ) -> tuple[np.ndarray, TableROI]:
         """Alias for extract_reconstructed_table."""
         return self.extract_reconstructed_table(
@@ -696,6 +993,7 @@ class SizeSpecExtractor:
             output_path=output_path,
             output_dir=output_dir,
             reconstructed_table_filename=reconstructed_table_filename,
+            attach_header=attach_header,
         )
 
     def extract_table(
@@ -777,7 +1075,25 @@ class SizeSpecExtractor:
         self.debugger.stage_07_cells(table_img, cells)
 
         if output_dir is not None:
-            save_table_segments(table_img, cells, output_dir)
+            header_box_img = None
+            if self.config.header_box.enabled:
+                h_roi = detect_header_box(
+                    warped, table_roi.bbox, self.config.header_box
+                )
+                if h_roi is not None:
+                    header_box_img = h_roi.image
+
+            save_table_segments(
+                table_img,
+                cells,
+                output_dir,
+                header_box_image=header_box_img,
+                header_box_filename=self.config.header_box.filename,
+                metadata_box_filename=self.config.header_box.metadata_filename,
+                attach_header_to_reconstructed=self.config.header_box.attach_to_reconstructed,
+                divider_thickness=self.config.header_box.divider_thickness,
+                divider_color=self.config.header_box.divider_color,
+            )
 
         # 5. CELL OCR (Section 10, 11, 12, 13, 15, 17, 18, 24, 25, 26)
         num_rows = len(cells)

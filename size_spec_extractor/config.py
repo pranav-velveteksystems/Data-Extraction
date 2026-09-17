@@ -87,9 +87,23 @@ class ValidationConfig:
 
 
 @dataclass
+class HeaderBoxConfig:
+    enabled: bool = True
+    mode: str = "auto"  # "auto", "metadata", "full", "manual"
+    manual_bbox: tuple[int, int, int, int] | None = None  # (x1, y1, x2, y2)
+    filename: str = "header_box.png"
+    metadata_filename: str = "metadata_box.png"
+    attach_to_reconstructed: bool = True
+    attach_to_reconstructed_image: bool = False
+    divider_thickness: int = 0
+    divider_color: tuple[int, int, int] = (0, 0, 0)
+
+
+@dataclass
 class ExtractorConfig:
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     table_detection: TableDetectionConfig = field(default_factory=TableDetectionConfig)
+    header_box: HeaderBoxConfig = field(default_factory=HeaderBoxConfig)
     line_detection: LineDetectionConfig = field(default_factory=LineDetectionConfig)
     cell_processing: CellProcessingConfig = field(default_factory=CellProcessingConfig)
     ocr: OCRConfig = field(default_factory=OCRConfig)
@@ -104,9 +118,20 @@ class ExtractorConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ExtractorConfig:
+        hdr_data = dict(d.get("header_box", {}))
+        if "manual_bbox" in hdr_data and hdr_data["manual_bbox"] is not None:
+            hdr_data["manual_bbox"] = tuple(hdr_data["manual_bbox"])
+        if "divider_color" in hdr_data and hdr_data["divider_color"] is not None:
+            hdr_data["divider_color"] = tuple(hdr_data["divider_color"])
+
+        tbl_data = dict(d.get("table_detection", {}))
+        if "manual_bbox" in tbl_data and tbl_data["manual_bbox"] is not None:
+            tbl_data["manual_bbox"] = tuple(tbl_data["manual_bbox"])
+
         return cls(
             preprocessing=PreprocessingConfig(**d.get("preprocessing", {})),
-            table_detection=TableDetectionConfig(**d.get("table_detection", {})),
+            table_detection=TableDetectionConfig(**tbl_data),
+            header_box=HeaderBoxConfig(**hdr_data),
             line_detection=LineDetectionConfig(**d.get("line_detection", {})),
             cell_processing=CellProcessingConfig(**d.get("cell_processing", {})),
             ocr=OCRConfig(**d.get("ocr", {})),
