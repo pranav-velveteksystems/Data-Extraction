@@ -8,7 +8,7 @@ from .cells.centering import (
     reconstruct_table_from_blocks,
     reconstruct_table_from_cells,
 )
-from .config import ExtractorConfig, HeaderBoxConfig, TableDetectionConfig
+from .config import ExtractorConfig, HeaderBoxConfig, LLMConfig, TableDetectionConfig
 from .detection.header_detector import (
     HeaderROI,
     attach_header_to_table,
@@ -26,6 +26,7 @@ from .extractor import (
     save_table_image,
     save_table_segments,
 )
+from .llm import extract_with_llm
 from .output.html import generate_html_table, save_html
 from .output.json import save_json, to_json
 from .reconstruction.schema import (
@@ -43,6 +44,7 @@ __all__ = [
     "GarmentSpecDocument",
     "HeaderBoxConfig",
     "HeaderROI",
+    "LLMConfig",
     "SizeSpecExtractor",
     "SizeSpecRow",
     "SizeSpecTable",
@@ -60,6 +62,7 @@ __all__ = [
     "extract_reconstructed_table_image",
     "extract_table_image",
     "extract_table_segments",
+    "extract_with_llm",
     "generate_html_table",
     "load_image",
     "reconstruct_table_from_blocks",

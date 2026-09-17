@@ -144,6 +144,44 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default="png",
         help="Image format/extension for cropped cell box images (default: 'png').",
     )
+    parser.add_argument(
+        "--llm",
+        dest="llm_enabled",
+        action="store_true",
+        default=True,
+        help="Enable LLM extraction with reconstructed table image using OpenAI SDK (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-llm",
+        dest="llm_enabled",
+        action="store_false",
+        help="Disable LLM extraction.",
+    )
+    parser.add_argument(
+        "--llm-model",
+        dest="llm_model",
+        default=None,
+        help="OpenAI model for LLM extraction (default: OPENAI_MODEL from .env or 'gemma-4-31b-it').",
+    )
+    parser.add_argument(
+        "--llm-base-url",
+        dest="llm_base_url",
+        default=None,
+        help="OpenAI API base URL (default: OPENAI_BASE_URL from .env).",
+    )
+    parser.add_argument(
+        "--llm-api-key",
+        dest="llm_api_key",
+        default=None,
+        help="OpenAI API key (default: OPENAI_API_KEY from .env).",
+    )
+    parser.add_argument(
+        "--result-filename",
+        "--llm-result-filename",
+        dest="result_filename",
+        default="result.json",
+        help="Filename for LLM extraction result JSON inside output directory (default: 'result.json').",
+    )
 
     parser.add_argument(
         "--config",
@@ -232,6 +270,17 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(args, "header_box_filename") and args.header_box_filename:
         config.header_box.filename = args.header_box_filename
 
+    if hasattr(args, "llm_enabled") and args.llm_enabled is not None:
+        config.llm.enabled = args.llm_enabled
+    if getattr(args, "llm_model", None):
+        config.llm.model = args.llm_model
+    if getattr(args, "llm_base_url", None):
+        config.llm.base_url = args.llm_base_url
+    if getattr(args, "llm_api_key", None):
+        config.llm.api_key = args.llm_api_key
+    if getattr(args, "result_filename", None):
+        config.llm.result_filename = args.result_filename
+
     # Determine output folder and standalone image path
 
     image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"}
@@ -309,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.output_html:
             saved_html = save_html(result, args.output_html)
             print(f"[+] HTML output saved to: {saved_html}")
+        if getattr(result, "llm_result_path", None):
+            print(f"[+] LLM JSON output saved to: {result.llm_result_path}")
         return 0
 
     # Default action: Detect size spec table and segment cells into output folder
@@ -377,6 +428,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"    - Main Table Image: {os.path.join(saved_abs, table_fname)}")
         if result.reconstructed_table_path:
             print(f"    - Reconstructed Table Image: {result.reconstructed_table_path}")
+        if result.llm_result_path:
+            print(f"    - LLM JSON Result: {result.llm_result_path}")
         if standalone_image_path:
             print(
                 f"    - Saved table image to: {os.path.abspath(standalone_image_path)}"

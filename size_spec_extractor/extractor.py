@@ -28,6 +28,7 @@ from .detection.header_detector import (
     detect_header_box,
 )
 from .detection.table_detector import TableROI, detect_table
+from .llm import extract_with_llm
 from .ocr.engine import BaseOCREngine, get_ocr_engine
 from .ocr.header_ocr import HeaderOCR
 from .ocr.numeric_ocr import NumericOCR
@@ -139,6 +140,8 @@ class TableSegmentationResult:
     header_box_bbox: tuple[int, int, int, int] | None = None
     header_roi: HeaderROI | None = None
     reconstructed_table_with_header_image: np.ndarray | None = None
+    llm_result: dict[str, Any] | None = None
+    llm_result_path: str | None = None
 
     def __iter__(self):
         yield self.table_image
@@ -186,6 +189,12 @@ class TableSegmentationResult:
                 "top_box": self.header_box_image,
                 "top_box_image": self.header_box_image,
                 "top_box_path": self.header_box_path,
+                "llm_result": self.llm_result,
+                "llm_result_path": self.llm_result_path,
+                "result_json": self.llm_result,
+                "result_json_path": self.llm_result_path,
+                "result": self.llm_result,
+                "result.json": self.llm_result_path,
             }
             if key in str_map:
                 return str_map[key]
@@ -304,6 +313,14 @@ class TableSegmentationResult:
     @property
     def stacked_table_image(self) -> np.ndarray | None:
         return self.reconstructed_table_with_header
+
+    @property
+    def result_json(self) -> dict[str, Any] | None:
+        return self.llm_result
+
+    @property
+    def result_json_path(self) -> str | None:
+        return self.llm_result_path
 
     def get_cell(self, row: int, col: int) -> Cell:
         """Get cell by (row, col) indices."""
@@ -540,6 +557,7 @@ def extract_table_segments(
     metadata_box_filename: str = "metadata_box.png",
     extract_header_box_flag: bool = True,
     attach_header_to_reconstructed: bool = True,
+    run_llm: bool | None = None,
 ) -> TableSegmentationResult:
     """Detect table, extract grid geometry, center block values, and reconstruct new table image.
 
@@ -554,6 +572,7 @@ def extract_table_segments(
         metadata_box_filename: Filename for the metadata box alias (default 'metadata_box.png').
         extract_header_box_flag: Whether to detect and extract the top metadata rectangle.
         attach_header_to_reconstructed: Whether to attach the top metadata rectangle to the top of reconstructed table.
+        run_llm: Optional boolean to explicitly enable or disable LLM extraction (default follows config.llm.enabled).
 
     Returns:
         TableSegmentationResult containing table_image, cells, table_roi, grid, and saved paths.
@@ -699,6 +718,31 @@ def extract_table_segments(
                 if key in saved_dict:
                     cell_paths[(cell_r, cell_c)] = saved_dict[key]
 
+    llm_res = None
+    llm_path = None
+    if output_dir is not None:
+        llm_cfg = getattr(config, "llm", None) if config is not None else None
+        should_run_llm = (
+            run_llm
+            if run_llm is not None
+            else (getattr(llm_cfg, "enabled", True) if llm_cfg is not None else True)
+        )
+        if should_run_llm:
+            recon_target = (
+                recon_path
+                if (recon_path and os.path.exists(recon_path))
+                else (
+                    table_path
+                    if (table_path and os.path.exists(table_path))
+                    else (final_recon_img if final_recon_img is not None else table_img)
+                )
+            )
+            llm_res, llm_path = extract_with_llm(
+                recon_target,
+                output_dir=abs_out_dir,
+                config=llm_cfg,
+            )
+
     return TableSegmentationResult(
         table_image=table_img,
         cells=cells,
@@ -715,6 +759,8 @@ def extract_table_segments(
         header_box_bbox=header_roi.bbox if header_roi is not None else None,
         header_roi=header_roi,
         reconstructed_table_with_header_image=reconstructed_with_header_img,
+        llm_result=llm_res,
+        llm_result_path=llm_path,
     )
 
 
@@ -910,6 +956,7 @@ class SizeSpecExtractor:
         table_filename: str = "table.png",
         cell_format: str = "png",
         reconstructed_table_filename: str = "reconstructed_table.png",
+        run_llm: bool | None = None,
     ) -> TableSegmentationResult:
         """Extract size spec table and segment all grid cells, saving to output_dir if specified."""
         return extract_table_segments(
@@ -919,6 +966,7 @@ class SizeSpecExtractor:
             cell_format=cell_format,
             reconstructed_table_filename=reconstructed_table_filename,
             config=self.config,
+            run_llm=run_llm,
         )
 
     def extract_table_and_cells(
@@ -928,6 +976,7 @@ class SizeSpecExtractor:
         table_filename: str = "table.png",
         cell_format: str = "png",
         reconstructed_table_filename: str = "reconstructed_table.png",
+        run_llm: bool | None = None,
     ) -> TableSegmentationResult:
         """Alias for extract_segments."""
         return self.extract_segments(
@@ -936,6 +985,7 @@ class SizeSpecExtractor:
             table_filename=table_filename,
             cell_format=cell_format,
             reconstructed_table_filename=reconstructed_table_filename,
+            run_llm=run_llm,
         )
 
     def extract_header_box(
@@ -1028,6 +1078,7 @@ class SizeSpecExtractor:
         image_input: str | Path | np.ndarray | Image.Image,
         output_table_image: str | Path | None = None,
         output_dir: str | Path | None = None,
+        run_llm: bool | None = None,
     ) -> ExtractionResult:
         """Run the end-to-end extraction pipeline (Section 33)."""
         # 1. LOAD & PREPROCESS (Section 3 & 4)
@@ -1074,6 +1125,7 @@ class SizeSpecExtractor:
         cells = create_cells(table_img, grid)
         self.debugger.stage_07_cells(table_img, cells)
 
+        saved_segments: dict[str, str] = {}
         if output_dir is not None:
             header_box_img = None
             if self.config.header_box.enabled:
@@ -1083,7 +1135,7 @@ class SizeSpecExtractor:
                 if h_roi is not None:
                     header_box_img = h_roi.image
 
-            save_table_segments(
+            saved_segments = save_table_segments(
                 table_img,
                 cells,
                 output_dir,
@@ -1168,10 +1220,36 @@ class SizeSpecExtractor:
         # 9. VALIDATION (Section 29)
         val_result = validate_table(document.size_spec_table, self.config.validation)
 
-        # 10. RESULT
+        # 10. FINAL STEP: LLM EXTRACTION (when output_dir is specified)
+        llm_res = None
+        llm_path = None
+        if output_dir is not None:
+            llm_cfg = getattr(self.config, "llm", None)
+            should_run_llm = (
+                run_llm
+                if run_llm is not None
+                else (
+                    getattr(llm_cfg, "enabled", True) if llm_cfg is not None else True
+                )
+            )
+            if should_run_llm:
+                recon_target = (
+                    saved_segments.get("reconstructed_table")
+                    or saved_segments.get("table")
+                    or table_img
+                )
+                llm_res, llm_path = extract_with_llm(
+                    recon_target,
+                    output_dir=output_dir,
+                    config=llm_cfg,
+                )
+
+        # 11. RESULT
         return ExtractionResult(
             document=document,
             metadata=metadata if self.config.include_coordinates else [],
             table_bbox=table_roi.bbox,
             validation=val_result.to_dict(),
+            llm_result=llm_res,
+            llm_result_path=llm_path,
         )

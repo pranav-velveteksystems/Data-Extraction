@@ -12,8 +12,10 @@ requires-python = ">=3.9"
 dependencies = [
     "numpy",
     "opencv-python",
+    "openai",
     "pillow",
     "pytesseract",
+    "python-dotenv",
 ]
 
 [project.scripts]

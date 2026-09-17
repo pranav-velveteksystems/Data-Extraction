@@ -83,6 +83,8 @@ class ExtractionResult:
     metadata: list[CellCoordinateMetadata] = field(default_factory=list)
     table_bbox: tuple[int, int, int, int] | None = None
     validation: dict[str, Any] | None = None
+    llm_result: dict[str, Any] | None = None
+    llm_result_path: str | None = None
 
     def to_dict(self, include_metadata: bool = True) -> dict[str, Any]:
         res = self.document.to_dict()
@@ -90,6 +92,10 @@ class ExtractionResult:
             res["_debug_coordinates"] = [m.to_dict() for m in self.metadata]
         if self.validation:
             res["_validation"] = self.validation
+        if self.llm_result is not None:
+            res["llm_result"] = self.llm_result
+        if self.llm_result_path is not None:
+            res["llm_result_path"] = self.llm_result_path
         return res
 
     def to_json(self, indent: int = 2, include_metadata: bool = False) -> str:
@@ -98,3 +104,34 @@ class ExtractionResult:
             indent=indent,
             ensure_ascii=False,
         )
+
+    def __getitem__(self, key: str) -> Any:
+        mapping = {
+            "document": self.document,
+            "metadata": self.metadata,
+            "table_bbox": self.table_bbox,
+            "validation": self.validation,
+            "llm_result": self.llm_result,
+            "llm_result_path": self.llm_result_path,
+            "result_json": self.llm_result,
+            "result_json_path": self.llm_result_path,
+            "result": self.llm_result,
+            "result.json": self.llm_result_path,
+        }
+        if key in mapping:
+            return mapping[key]
+        raise KeyError(f"Key {key!r} not found in ExtractionResult")
+
+    def __contains__(self, key: Any) -> bool:
+        return key in {
+            "document",
+            "metadata",
+            "table_bbox",
+            "validation",
+            "llm_result",
+            "llm_result_path",
+            "result_json",
+            "result_json_path",
+            "result",
+            "result.json",
+        }

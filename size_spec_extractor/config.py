@@ -100,6 +100,16 @@ class HeaderBoxConfig:
 
 
 @dataclass
+class LLMConfig:
+    enabled: bool = True
+    model: str = "gemma-4-31b-it"
+    api_key: str | None = None
+    base_url: str | None = None
+    result_filename: str = "result.json"
+    prompt: str | None = None
+
+
+@dataclass
 class ExtractorConfig:
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     table_detection: TableDetectionConfig = field(default_factory=TableDetectionConfig)
@@ -109,6 +119,7 @@ class ExtractorConfig:
     ocr: OCRConfig = field(default_factory=OCRConfig)
     reconstruction: ReconstructionConfig = field(default_factory=ReconstructionConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     debug: bool = False
     debug_dir: str | None = None
     include_coordinates: bool = True
@@ -128,6 +139,14 @@ class ExtractorConfig:
         if "manual_bbox" in tbl_data and tbl_data["manual_bbox"] is not None:
             tbl_data["manual_bbox"] = tuple(tbl_data["manual_bbox"])
 
+        llm_data = d.get("llm", {})
+        if isinstance(llm_data, LLMConfig):
+            llm_cfg = llm_data
+        elif isinstance(llm_data, dict):
+            llm_cfg = LLMConfig(**llm_data)
+        else:
+            llm_cfg = LLMConfig()
+
         return cls(
             preprocessing=PreprocessingConfig(**d.get("preprocessing", {})),
             table_detection=TableDetectionConfig(**tbl_data),
@@ -137,6 +156,7 @@ class ExtractorConfig:
             ocr=OCRConfig(**d.get("ocr", {})),
             reconstruction=ReconstructionConfig(**d.get("reconstruction", {})),
             validation=ValidationConfig(**d.get("validation", {})),
+            llm=llm_cfg,
             debug=d.get("debug", False),
             debug_dir=d.get("debug_dir"),
             include_coordinates=d.get("include_coordinates", True),
