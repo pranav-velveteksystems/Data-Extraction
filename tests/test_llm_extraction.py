@@ -16,6 +16,7 @@ from size_spec_extractor.extractor import extract_table_segments
 from size_spec_extractor.llm import (
     call_openai_vision,
     encode_image_to_base64,
+    extract_remarks_with_llm,
     extract_with_llm,
     get_chat_completions_endpoint,
     load_llm_env,
@@ -464,6 +465,16 @@ class TestLLMExtraction(unittest.TestCase):
         )
         self.assertEqual(res["result_json"]["style_code"], "JK-99")
         self.assertEqual(res["result.json"], res.llm_result_path)
+
+    @patch("size_spec_extractor.llm.call_openai_vision")
+    def test_extract_remarks_with_llm(self, mock_call):
+        mock_call.return_value = json.dumps(
+            {"remarks": "Iron with low heat. Do not bleach."}
+        )
+        cfg = LLMConfig(api_key="sk-test-key")
+        remarks = extract_remarks_with_llm(self.sample_img_path, config=cfg)
+        self.assertEqual(remarks, "Iron with low heat. Do not bleach.")
+        mock_call.assert_called_once()
 
 
 if __name__ == "__main__":

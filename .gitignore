@@ -1,2 +1,5 @@
 .ruff_cache/
 .env
+__pycache__/
+
+size_spec_extractor/__pycache__/

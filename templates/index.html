@@ -78,15 +78,65 @@
       margin-bottom: 24px;
     }
 
-    /* Upload Area */
+    /* 2-Column Upload Layout */
+    .upload-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .upload-slot {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slot-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .badge-required {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background-color: #dbeafe;
+      color: #1d4ed8;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+
+    .badge-optional {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background-color: #f1f5f9;
+      color: var(--text-muted);
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+
+    /* Dropzone */
     .dropzone {
       border: 2px dashed var(--border-color);
       border-radius: var(--radius-md);
-      padding: 40px 20px;
+      padding: 32px 16px;
       text-align: center;
       cursor: pointer;
       background-color: #fafbfc;
       transition: all 0.2s ease;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
     }
 
     .dropzone:hover, .dropzone.dragover {
@@ -95,21 +145,21 @@
     }
 
     .dropzone-icon {
-      width: 48px;
-      height: 48px;
-      margin: 0 auto 12px;
+      width: 40px;
+      height: 40px;
+      margin-bottom: 10px;
       color: var(--primary);
     }
 
     .dropzone-text {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--text-primary);
       margin-bottom: 4px;
     }
 
     .dropzone-hint {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
     }
 
@@ -121,8 +171,8 @@
       display: none;
       align-items: center;
       justify-content: space-between;
-      margin-top: 16px;
-      padding: 12px 16px;
+      margin-top: 10px;
+      padding: 10px 14px;
       background-color: var(--bg-subtle);
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-color);
@@ -130,16 +180,38 @@
 
     .file-name {
       font-weight: 600;
-      font-size: 14px;
+      font-size: 13px;
       color: var(--text-primary);
       display: flex;
       align-items: center;
       gap: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
     }
 
     .file-size {
       font-size: 12px;
       color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .remove-file-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      font-size: 16px;
+      line-height: 1;
+      border-radius: 4px;
+      margin-left: 8px;
+    }
+
+    .remove-file-btn:hover {
+      color: var(--danger);
+      background-color: var(--danger-bg);
     }
 
     /* Buttons */
@@ -161,7 +233,6 @@
       background-color: var(--primary);
       color: #ffffff;
       width: 100%;
-      margin-top: 16px;
       padding: 12px;
     }
 
@@ -260,6 +331,42 @@
       color: var(--text-muted);
       font-style: italic;
       font-weight: normal;
+    }
+
+    /* Remarks Box */
+    .remarks-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .remarks-header {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .remarks-body {
+      background-color: #f8fafc;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .remarks-body.empty {
+      font-style: italic;
+      color: var(--text-muted);
     }
 
     /* Section Title */
@@ -372,33 +479,58 @@
   <div class="container">
     <header>
       <h1>Garment Size Spec Extractor</h1>
-      <p class="subtitle">Upload a garment specification design sheet to extract structured size measurements and metadata as JSON.</p>
+      <p class="subtitle">Upload front design sheet (measurements &amp; table) and back design sheet (remarks &amp; notes) to extract structured JSON.</p>
     </header>
 
     <!-- Upload Card -->
     <div class="card" id="upload-card">
       <form id="upload-form">
-        <div class="dropzone" id="dropzone">
-          <svg class="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-          </svg>
-          <div class="dropzone-text">Click or drag &amp; drop designsheet image here</div>
-          <div class="dropzone-hint">Supports PNG, JPG, JPEG, WebP, BMP</div>
-          <input type="file" id="file-input" class="file-input" accept="image/*">
-        </div>
+        <div class="upload-grid">
+          <!-- Front Image Slot (Required) -->
+          <div class="upload-slot">
+            <div class="slot-title">
+              <span>Front Design Sheet</span>
+              <span class="badge-required">Required</span>
+            </div>
+            <div class="dropzone" id="dropzone-front">
+              <svg class="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+              <div class="dropzone-text">Front Image (Size Table)</div>
+              <div class="dropzone-hint">Drag &amp; drop or click to browse</div>
+              <input type="file" id="file-input-front" class="file-input" accept="image/*">
+            </div>
+            <div class="selected-file-info" id="file-info-front">
+              <span class="file-name" id="file-name-front">front.png</span>
+              <span class="file-size" id="file-size-front">0 KB</span>
+              <button type="button" class="remove-file-btn" id="remove-front-btn" title="Remove">&times;</button>
+            </div>
+          </div>
 
-        <div class="selected-file-info" id="file-info">
-          <span class="file-name" id="file-name-text">
-            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-            </svg>
-            <span id="file-name">designsheet.png</span>
-          </span>
-          <span class="file-size" id="file-size">0 KB</span>
+          <!-- Back Image Slot (Optional) -->
+          <div class="upload-slot">
+            <div class="slot-title">
+              <span>Back Design Sheet</span>
+              <span class="badge-optional">Optional</span>
+            </div>
+            <div class="dropzone" id="dropzone-back">
+              <svg class="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #64748b;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              <div class="dropzone-text">Back Image (Remarks &amp; Notes)</div>
+              <div class="dropzone-hint">Sent directly to LLM for remarks</div>
+              <input type="file" id="file-input-back" class="file-input" accept="image/*">
+            </div>
+            <div class="selected-file-info" id="file-info-back">
+              <span class="file-name" id="file-name-back">back.png</span>
+              <span class="file-size" id="file-size-back">0 KB</span>
+              <button type="button" class="remove-file-btn" id="remove-back-btn" title="Remove">&times;</button>
+            </div>
+          </div>
         </div>
 
         <button type="submit" id="submit-btn" class="btn btn-primary" disabled>
-          <span id="btn-text">Extract Size Specification</span>
+          <span id="btn-text">Extract Size Specification &amp; Remarks</span>
         </button>
       </form>
     </div>
@@ -422,6 +554,17 @@
           <div class="meta-label">Style Code</div>
           <div class="meta-value" id="meta-style-code">—</div>
         </div>
+      </div>
+
+      <!-- Remarks Card -->
+      <div class="remarks-card" id="remarks-card">
+        <div class="remarks-header">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--primary);">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/>
+          </svg>
+          <span>Remarks &amp; Instructions</span>
+        </div>
+        <div class="remarks-body" id="meta-remarks">No remarks provided.</div>
       </div>
 
       <!-- Size Spec Table Card -->
@@ -448,17 +591,26 @@
 
       <!-- Bottom action -->
       <div class="actions-bar">
-        <button type="button" class="btn btn-secondary" id="reset-btn">Upload Another Design Sheet</button>
+        <button type="button" class="btn btn-secondary" id="reset-btn">Upload Another Sheet</button>
       </div>
     </div>
   </div>
 
   <script>
-    const dropzone = document.getElementById("dropzone");
-    const fileInput = document.getElementById("file-input");
-    const fileInfo = document.getElementById("file-info");
-    const fileName = document.getElementById("file-name");
-    const fileSize = document.getElementById("file-size");
+    const dropzoneFront = document.getElementById("dropzone-front");
+    const fileInputFront = document.getElementById("file-input-front");
+    const fileInfoFront = document.getElementById("file-info-front");
+    const fileNameFront = document.getElementById("file-name-front");
+    const fileSizeFront = document.getElementById("file-size-front");
+    const removeFrontBtn = document.getElementById("remove-front-btn");
+
+    const dropzoneBack = document.getElementById("dropzone-back");
+    const fileInputBack = document.getElementById("file-input-back");
+    const fileInfoBack = document.getElementById("file-info-back");
+    const fileNameBack = document.getElementById("file-name-back");
+    const fileSizeBack = document.getElementById("file-size-back");
+    const removeBackBtn = document.getElementById("remove-back-btn");
+
     const submitBtn = document.getElementById("submit-btn");
     const btnText = document.getElementById("btn-text");
     const uploadForm = document.getElementById("upload-form");
@@ -469,50 +621,74 @@
     const copyBtn = document.getElementById("copy-btn");
     const copyBtnText = document.getElementById("copy-btn-text");
 
-    let selectedFile = null;
+    let frontFile = null;
+    let backFile = null;
     let currentResultJson = null;
 
-    // Trigger file selection on dropzone click
-    dropzone.addEventListener("click", () => fileInput.click());
-
-    // File input change
-    fileInput.addEventListener("change", (e) => {
-      if (e.target.files && e.target.files[0]) {
-        handleFileSelect(e.target.files[0]);
-      }
-    });
-
-    // Drag and drop events
-    ["dragenter", "dragover"].forEach((eventName) => {
-      dropzone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropzone.classList.add("dragover");
+    // Helper setup for drag & drop
+    function setupDropzone(dropzone, fileInput, onFileSelected) {
+      dropzone.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) {
+          onFileSelected(e.target.files[0]);
+        }
       });
-    });
-
-    ["dragleave", "drop"].forEach((eventName) => {
-      dropzone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropzone.classList.remove("dragover");
+      ["dragenter", "dragover"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.add("dragover");
+        });
       });
-    });
+      ["dragleave", "drop"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.remove("dragover");
+        });
+      });
+      dropzone.addEventListener("drop", (e) => {
+        const dt = e.dataTransfer;
+        if (dt.files && dt.files[0]) {
+          onFileSelected(dt.files[0]);
+        }
+      });
+    }
 
-    dropzone.addEventListener("drop", (e) => {
-      const dt = e.dataTransfer;
-      if (dt.files && dt.files[0]) {
-        handleFileSelect(dt.files[0]);
-      }
-    });
-
-    function handleFileSelect(file) {
-      selectedFile = file;
-      fileName.textContent = file.name;
-      fileSize.textContent = formatBytes(file.size);
-      fileInfo.style.display = "flex";
-      submitBtn.disabled = false;
+    setupDropzone(dropzoneFront, fileInputFront, (file) => {
+      frontFile = file;
+      fileNameFront.textContent = file.name;
+      fileSizeFront.textContent = formatBytes(file.size);
+      fileInfoFront.style.display = "flex";
+      updateSubmitState();
       hideError();
+    });
+
+    setupDropzone(dropzoneBack, fileInputBack, (file) => {
+      backFile = file;
+      fileNameBack.textContent = file.name;
+      fileSizeBack.textContent = formatBytes(file.size);
+      fileInfoBack.style.display = "flex";
+      hideError();
+    });
+
+    removeFrontBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      frontFile = null;
+      fileInputFront.value = "";
+      fileInfoFront.style.display = "none";
+      updateSubmitState();
+    });
+
+    removeBackBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      backFile = null;
+      fileInputBack.value = "";
+      fileInfoBack.style.display = "none";
+    });
+
+    function updateSubmitState() {
+      submitBtn.disabled = !frontFile;
     }
 
     function formatBytes(bytes) {
@@ -536,14 +712,17 @@
     // Submit handler
     uploadForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      if (!selectedFile) return;
+      if (!frontFile) return;
 
       hideError();
       submitBtn.disabled = true;
-      btnText.innerHTML = `<span class="spinner"></span> Processing &amp; Extracting...`;
+      btnText.innerHTML = `<span class="spinner"></span> Processing Images &amp; Extracting...`;
 
       const formData = new FormData();
-      formData.append("image", selectedFile);
+      formData.append("front_image", frontFile);
+      if (backFile) {
+        formData.append("back_image", backFile);
+      }
 
       try {
         const response = await fetch("/api/extract", {
@@ -562,18 +741,19 @@
         showError(err.message || "An error occurred during extraction.");
       } finally {
         submitBtn.disabled = false;
-        btnText.textContent = "Extract Size Specification";
+        btnText.textContent = "Extract Size Specification & Remarks";
       }
     });
 
     function renderResults(data) {
       currentResultJson = data;
 
-      // Extract metadata fields (handling both camelCase and snake_case)
+      // Extract metadata fields
       const itemName = data.item_name || data.name || "";
       const category = data.category || data.catogory || "";
       const styleCode = data.style_code || data.styleCode || "";
       const htmlTable = data.size_spec_table || data.table || "";
+      const remarks = data.remarks || data.notes || "";
 
       // Populate meta fields
       const metaItem = document.getElementById("meta-item-name");
@@ -589,12 +769,21 @@
       metaStyle.textContent = styleCode || "—";
       metaStyle.className = styleCode ? "meta-value" : "meta-value empty";
 
+      // Remarks
+      const remarksEl = document.getElementById("meta-remarks");
+      if (remarks && remarks.trim()) {
+        remarksEl.textContent = remarks.trim();
+        remarksEl.className = "remarks-body";
+      } else {
+        remarksEl.textContent = "No remarks extracted or provided.";
+        remarksEl.className = "remarks-body empty";
+      }
+
       // Render table
       const tableContainer = document.getElementById("table-container");
       if (htmlTable && typeof htmlTable === "string" && htmlTable.includes("<table")) {
         tableContainer.innerHTML = htmlTable;
       } else if (typeof htmlTable === "object") {
-        // In case table is a JSON object
         tableContainer.innerHTML = `<div style="padding:16px; color:#64748b;">Table returned in structured object format (see Raw JSON below).</div>`;
       } else {
         tableContainer.innerHTML = `<div style="padding:16px; color:#64748b;">No table HTML found in response.</div>`;
@@ -611,9 +800,12 @@
 
     // Reset handler
     resetBtn.addEventListener("click", () => {
-      selectedFile = null;
-      fileInput.value = "";
-      fileInfo.style.display = "none";
+      frontFile = null;
+      backFile = null;
+      fileInputFront.value = "";
+      fileInputBack.value = "";
+      fileInfoFront.style.display = "none";
+      fileInfoBack.style.display = "none";
       submitBtn.disabled = true;
       resultSection.style.display = "none";
       uploadCard.style.display = "block";

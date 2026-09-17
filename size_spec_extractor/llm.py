@@ -51,6 +51,19 @@ Do NOT wrap the JSON in markdown code blocks if using json_object mode, or if yo
 Return ONLY valid JSON.
 """
 
+DEFAULT_REMARKS_PROMPT = """You are an expert system analyzing garment specification sheets.
+Analyze the provided image of the garment specification sheet (back side / notes section).
+Extract all remarks, notes, sewing/workmanship instructions, packaging requirements, washing instructions, or special comments.
+
+Return ONLY a valid JSON object with the following field:
+{
+  "remarks": "<full extracted remarks and notes text, or empty string if no remarks found>"
+}
+
+Do NOT wrap the JSON in markdown code blocks if using json_object mode, or if you do, ensure it is strictly parseable JSON.
+Return ONLY valid JSON.
+"""
+
 
 def load_llm_env(env_path: Path | str | None = None) -> dict[str, str]:
     """Load OpenAI configuration environment variables from .env file or environment.
@@ -304,6 +317,15 @@ def parse_llm_json_response(content: str) -> dict[str, Any]:
     result["size_spec_table"] = size_spec_table
     result["size spec table"] = size_spec_table
 
+    remarks = (
+        data.get("remarks")
+        or data.get("notes")
+        or data.get("comments")
+        or data.get("comment")
+        or ""
+    )
+    result["remarks"] = str(remarks).strip()
+
     return result
 
 
@@ -537,3 +559,75 @@ def extract_with_llm(
     except Exception as e:
         print(f"[!] Warning: LLM extraction failed: {e}", file=sys.stderr)
         return None, None
+
+
+def extract_remarks_with_llm(
+    image_input: str | Path | np.ndarray | Image.Image,
+    config: Any = None,
+    env_file: str | Path | None = None,
+    prompt: str = DEFAULT_REMARKS_PROMPT,
+) -> str:
+    """Extract remarks and notes directly from the back image of a spec sheet using LLM.
+
+    Args:
+        image_input: File path, numpy array, or PIL Image of back image.
+        config: Optional LLMConfig or ExtractorConfig instance.
+        env_file: Optional path to .env file.
+        prompt: Optional prompt to use for remarks extraction.
+
+    Returns:
+        Extracted remarks string (empty string if failed or not found).
+    """
+    env_vars = load_llm_env(env_file)
+    llm_cfg = getattr(config, "llm", config)
+
+    enabled = getattr(llm_cfg, "enabled", True)
+    if not enabled:
+        return ""
+
+    if getattr(llm_cfg, "api_key", None) is not None:
+        api_key = (llm_cfg.api_key or "").strip()
+    else:
+        api_key = (env_vars.get("OPENAI_API_KEY", "") or "").strip()
+
+    if not api_key:
+        print("[*] Skipping remarks extraction: OPENAI_API_KEY not configured in .env")
+        return ""
+
+    if getattr(llm_cfg, "base_url", None) is not None:
+        base_url = (llm_cfg.base_url or "").strip() or None
+    else:
+        base_url = (env_vars.get("OPENAI_BASE_URL", "") or "").strip() or None
+
+    if getattr(llm_cfg, "model", None) is not None and str(llm_cfg.model).strip():
+        model = str(llm_cfg.model).strip()
+    else:
+        model = (env_vars.get("OPENAI_MODEL", "") or "").strip() or "gpt-4o"
+
+    try:
+        print(f"[*] Calling LLM ({model}) for remarks extraction on back image...")
+        image_b64 = encode_image_to_base64(image_input)
+        raw_content = call_openai_vision(
+            image_b64=image_b64,
+            prompt=prompt,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
+        parsed = parse_llm_json_response(raw_content)
+        remarks = parsed.get("remarks", "")
+        if not remarks and isinstance(parsed, dict):
+            for alt_k in [
+                "notes",
+                "comment",
+                "comments",
+                "instruction",
+                "instructions",
+            ]:
+                if parsed.get(alt_k):
+                    remarks = parsed[alt_k]
+                    break
+        return str(remarks or "").strip()
+    except Exception as e:
+        print(f"[!] Warning: Remarks extraction failed: {e}", file=sys.stderr)
+        return ""

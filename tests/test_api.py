@@ -65,9 +65,12 @@ class TestAPI(unittest.TestCase):
         json_data = response.get_json()
         self.assertIn("OPENAI_API_KEY is not configured", json_data["error"])
 
+    @patch("app.extract_with_llm")
     @patch("app.load_llm_env")
     @patch("app.extract_table_segments")
-    def test_extract_success_and_cleanup(self, mock_extract, mock_load_env):
+    def test_extract_success_and_cleanup(
+        self, mock_extract, mock_load_env, mock_extract_llm
+    ):
         mock_load_env.return_value = {
             "OPENAI_API_KEY": "sk-test-mock-key",
             "OPENAI_MODEL": "gpt-4o",
@@ -75,12 +78,18 @@ class TestAPI(unittest.TestCase):
         }
 
         mock_result = MagicMock()
-        mock_result.llm_result = {
-            "item_name": "Test Blouse",
-            "category": "Tops",
-            "style_code": "ST-999",
-            "size_spec_table": "<table><thead><tr><th>Spec</th><th>S</th><th>M</th></tr></thead><tbody><tr><td>Chest</td><td>36</td><td>38</td></tr></tbody></table>",
-        }
+        mock_result.reconstructed_table_path = None
+        mock_result.table_image_path = None
+        mock_result.reconstructed_table_image = "dummy_img"
+        mock_extract_llm.return_value = (
+            {
+                "item_name": "Test Blouse",
+                "category": "Tops",
+                "style_code": "ST-999",
+                "size_spec_table": "<table><thead><tr><th>Spec</th><th>S</th><th>M</th></tr></thead><tbody><tr><td>Chest</td><td>36</td><td>38</td></tr></tbody></table>",
+            },
+            "result.json",
+        )
 
         temp_dir_captured = []
 
@@ -95,6 +104,7 @@ class TestAPI(unittest.TestCase):
                     f.write(b"fake table png")
                 with open(recon_path, "wb") as f:
                     f.write(b"fake recon table png")
+                mock_result.reconstructed_table_path = recon_path
             return mock_result
 
         mock_extract.side_effect = fake_extract
@@ -123,6 +133,56 @@ class TestAPI(unittest.TestCase):
             os.path.exists(used_temp_dir),
             f"Temporary directory {used_temp_dir} was NOT cleaned up!",
         )
+
+    @patch("app.extract_with_llm")
+    @patch("app.extract_remarks_with_llm")
+    @patch("app.load_llm_env")
+    @patch("app.extract_table_segments")
+    def test_extract_with_front_and_back_images(
+        self, mock_extract, mock_load_env, mock_extract_remarks, mock_extract_llm
+    ):
+        mock_load_env.return_value = {
+            "OPENAI_API_KEY": "sk-test-mock-key",
+            "OPENAI_MODEL": "gpt-4o",
+            "OPENAI_BASE_URL": "",
+        }
+
+        mock_result = MagicMock()
+        mock_result.reconstructed_table_path = "recon.png"
+        mock_extract.return_value = mock_result
+        mock_extract_llm.return_value = (
+            {
+                "item_name": "Two Piece Suit",
+                "category": "Suits",
+                "style_code": "ST-555",
+                "size_spec_table": "<table><tr><td>Length</td><td>40</td></tr></table>",
+            },
+            "result.json",
+        )
+        mock_extract_remarks.return_value = "Dry clean only. 100% pure wool."
+
+        front_bytes = io.BytesIO(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        back_bytes = io.BytesIO(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+
+        data = {
+            "front_image": (front_bytes, "front.png"),
+            "back_image": (back_bytes, "back.png"),
+        }
+
+        response = self.client.post(
+            "/api/extract", data=data, content_type="multipart/form-data"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        res_json = response.get_json()
+        self.assertEqual(res_json["item_name"], "Two Piece Suit")
+        self.assertEqual(res_json["remarks"], "Dry clean only. 100% pure wool.")
+        mock_extract_llm.assert_called_once()
+        mock_extract_remarks.assert_called_once()
 
 
 if __name__ == "__main__":
