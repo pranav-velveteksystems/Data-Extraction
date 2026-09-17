@@ -46,6 +46,7 @@ Requirements for "size_spec_table":
 - Retain all measurement fractions, decimals, units, and empty cells faithfully.
 - Ensure the HTML table in "size_spec_table" is escaped properly within the JSON string and does not contain unescaped raw control characters.
 - value must be in number format. means convert 2 1/2 to 2.5
+- ignore duplicated values in boxes
 
 Do NOT wrap the JSON in markdown code blocks if using json_object mode, or if you do, ensure it is strictly parseable JSON.
 Return ONLY valid JSON.
