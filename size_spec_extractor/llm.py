@@ -1,4 +1,4 @@
-"""LLM integration using OpenAI SDK for size specification table extraction."""
+"""LLM integration using direct HTTP API calls for size specification table extraction."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import contextlib
 import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -107,18 +109,24 @@ def load_llm_env(env_path: Path | str | None = None) -> dict[str, str]:
             os.environ[k] = v
 
     def resolve_val(key: str, default: str = "") -> str:
+        # First priority: Always use value from .env file if defined
+        if key in env_data and env_data[key] is not None and env_data[key].strip():
+            return env_data[key].strip()
+        # Fallback: os.environ only if not defined in .env file
         env_val = os.getenv(key, "").strip()
         if env_val:
             return env_val
-        file_val = env_data.get(key, "").strip()
-        if file_val:
-            return file_val
         return default
 
+    # Sync os.environ with .env so any library or subprocess gets exact .env values
+    for k in ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"]:
+        if k in env_data and env_data[k].strip():
+            os.environ[k] = env_data[k].strip()
+
     return {
-        "OPENAI_API_KEY": resolve_val("OPENAI_API_KEY"),
-        "OPENAI_BASE_URL": resolve_val("OPENAI_BASE_URL"),
-        "OPENAI_MODEL": resolve_val("OPENAI_MODEL", "ag/gemini-3.7-flash-low(low)"),
+        "OPENAI_API_KEY": resolve_val("OPENAI_API_KEY", ""),
+        "OPENAI_BASE_URL": resolve_val("OPENAI_BASE_URL", ""),
+        "OPENAI_MODEL": resolve_val("OPENAI_MODEL", "gpt-4o"),
     }
 
 
@@ -299,34 +307,60 @@ def parse_llm_json_response(content: str) -> dict[str, Any]:
     return result
 
 
+def get_chat_completions_endpoint(base_url: str | None = None) -> str:
+    """Build the Chat Completions HTTP endpoint from base_url."""
+    if not base_url or not base_url.strip():
+        return "https://api.openai.com/v1/chat/completions"
+
+    clean_url = base_url.strip().rstrip("/")
+    if clean_url.endswith("/chat/completions"):
+        return clean_url
+    if clean_url.endswith("/v1"):
+        return f"{clean_url}/chat/completions"
+    return f"{clean_url}/v1/chat/completions"
+
+
+def make_http_chat_request(
+    endpoint: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout: float = 120.0,
+) -> dict[str, Any]:
+    """Send HTTP POST request to Chat Completions endpoint."""
+    body_bytes = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=body_bytes,
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        content_bytes = resp.read()
+        return json.loads(content_bytes.decode("utf-8"))
+
+
 def call_openai_vision(
     image_b64: str,
     prompt: str = DEFAULT_LLM_PROMPT,
     api_key: str | None = None,
     base_url: str | None = None,
-    model: str = "ag/gemini-3.7-flash-low(low)",
+    model: str = "gpt-4o",
+    timeout: float = 120.0,
 ) -> str:
-    """Call OpenAI Chat Completions API with vision input.
+    """Call OpenAI-compatible Chat Completions HTTP API directly with vision input.
 
     Args:
         image_b64: Base64-encoded image string or data URL.
         prompt: Prompt instructing LLM on desired output.
-        api_key: OpenAI API key.
-        base_url: Optional OpenAI base URL.
-        model: OpenAI model name.
+        api_key: API key for authorization.
+        base_url: Optional base URL (defaults to https://api.openai.com/v1).
+        model: Model name to use.
+        timeout: Request timeout in seconds.
 
     Returns:
         Response message content string from the LLM.
     """
-    from openai import OpenAI
-
-    client_kwargs: dict[str, Any] = {}
-    if api_key:
-        client_kwargs["api_key"] = api_key
-    if base_url and base_url.strip():
-        client_kwargs["base_url"] = base_url.strip()
-
-    client = OpenAI(**client_kwargs)
+    endpoint = get_chat_completions_endpoint(base_url)
 
     if image_b64.startswith("data:"):
         image_url = image_b64
@@ -360,30 +394,71 @@ def call_openai_vision(
         }
     ]
 
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            response_format={"type": "json_object"},
-        )
-    except Exception as e:
-        err_str = str(e).lower()
-        if (
-            "response_format" in err_str
-            or "json_object" in err_str
-            or "400" in err_str
-            or "bad request" in err_str
-        ):
-            # Fallback for models/endpoints that don't support response_format
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-            )
-        else:
-            raise
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "SizeSpecExtractor/1.0",
+    }
+    if api_key and api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
 
-    choice = response.choices[0]
-    return choice.message.content or ""
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "response_format": {"type": "json_object"},
+    }
+
+    try:
+        data = make_http_chat_request(endpoint, headers, payload, timeout=timeout)
+    except urllib.error.HTTPError as err:
+        err_body = ""
+        with contextlib.suppress(Exception):
+            err_body = err.read().decode("utf-8", errors="replace")
+
+        err_lower = f"{err} {err_body}".lower()
+        if (
+            "response_format" in err_lower
+            or "json_object" in err_lower
+            or err.code == 400
+        ) and "response_format" in payload:
+            # Fallback for models/endpoints that don't support response_format
+            fallback_payload = dict(payload)
+            fallback_payload.pop("response_format", None)
+            try:
+                data = make_http_chat_request(
+                    endpoint, headers, fallback_payload, timeout=timeout
+                )
+            except urllib.error.HTTPError as fallback_err:
+                fallback_body = ""
+                with contextlib.suppress(Exception):
+                    fallback_body = fallback_err.read().decode(
+                        "utf-8", errors="replace"
+                    )
+                raise RuntimeError(
+                    f"HTTP {fallback_err.code} from LLM API ({endpoint}): {fallback_body or fallback_err.reason}"
+                ) from fallback_err
+        else:
+            raise RuntimeError(
+                f"HTTP {err.code} from LLM API ({endpoint}): {err_body or err.reason}"
+            ) from err
+    except urllib.error.URLError as err:
+        raise RuntimeError(
+            f"Network error connecting to LLM API ({endpoint}): {err.reason}"
+        ) from err
+
+    choices = data.get("choices")
+    if not choices or not isinstance(choices, list):
+        raise ValueError(
+            f"Invalid response from LLM API: missing 'choices' list in {data}"
+        )
+
+    first_choice = choices[0]
+    message = first_choice.get("message", {})
+    if isinstance(message, dict) and "content" in message:
+        return message.get("content", "") or ""
+    if "text" in first_choice:
+        return first_choice.get("text", "") or ""
+    return ""
 
 
 def extract_with_llm(

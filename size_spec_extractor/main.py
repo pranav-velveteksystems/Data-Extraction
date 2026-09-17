@@ -161,7 +161,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "--llm-model",
         dest="llm_model",
         default=None,
-        help="OpenAI model for LLM extraction (default: OPENAI_MODEL from .env or 'ag/gemini-3.7-flash-low(low)').",
+        help="Model for LLM extraction (default: OPENAI_MODEL from .env).",
     )
     parser.add_argument(
         "--llm-base-url",

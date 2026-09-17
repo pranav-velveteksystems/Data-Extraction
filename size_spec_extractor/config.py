@@ -102,7 +102,7 @@ class HeaderBoxConfig:
 @dataclass
 class LLMConfig:
     enabled: bool = True
-    model: str = "ag/gemini-3.7-flash-low(low)"
+    model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
     result_filename: str = "result.json"

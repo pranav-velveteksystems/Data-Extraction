@@ -5,7 +5,7 @@ import os
 import shutil
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -17,6 +17,7 @@ from size_spec_extractor.llm import (
     call_openai_vision,
     encode_image_to_base64,
     extract_with_llm,
+    get_chat_completions_endpoint,
     load_llm_env,
     parse_llm_json_response,
 )
@@ -307,23 +308,27 @@ class TestLLMExtraction(unittest.TestCase):
         with self.assertRaises(TypeError):
             parse_llm_json_response("[1, 2, 3]")
 
-    @patch("openai.OpenAI")
-    def test_call_openai_vision_response_format_fallback(self, mock_openai_cls):
-        mock_client = MagicMock()
-        mock_openai_cls.return_value = mock_client
+    @patch("size_spec_extractor.llm.make_http_chat_request")
+    def test_call_openai_vision_response_format_fallback(self, mock_http_request):
+        import io
+        import urllib.error
 
-        # First call with response_format raises RuntimeError
-        mock_choice = MagicMock()
-        mock_choice.message.content = '{"item_name": "Fallback Item"}'
-        mock_success_response = MagicMock()
-        mock_success_response.choices = [mock_choice]
+        mock_success_response = {
+            "choices": [{"message": {"content": '{"item_name": "Fallback Item"}'}}]
+        }
 
-        def side_effect(*args, **kwargs):
-            if "response_format" in kwargs:
-                raise RuntimeError("response_format is not supported on this model")
+        def side_effect(endpoint, headers, payload, timeout=120.0):
+            if "response_format" in payload:
+                raise urllib.error.HTTPError(
+                    url=endpoint,
+                    code=400,
+                    msg="response_format is not supported on this model",
+                    hdrs={},
+                    fp=io.BytesIO(b'{"error": "response_format is not supported"}'),
+                )
             return mock_success_response
 
-        mock_client.chat.completions.create.side_effect = side_effect
+        mock_http_request.side_effect = side_effect
 
         content = call_openai_vision(
             image_b64="dGVzdA==",
@@ -332,7 +337,7 @@ class TestLLMExtraction(unittest.TestCase):
             model="custom-model",
         )
         self.assertIn("Fallback Item", content)
-        self.assertEqual(mock_client.chat.completions.create.call_count, 2)
+        self.assertEqual(mock_http_request.call_count, 2)
 
     def test_parse_llm_json_trailing_commas_and_control_chars(self):
         raw = """{
@@ -393,25 +398,42 @@ class TestLLMExtraction(unittest.TestCase):
         self.assertIn("<th>Measurement</th>", parsed["size_spec_table"])
         self.assertIn("<td>Waist</td>", parsed["size_spec_table"])
 
-    @patch("openai.OpenAI")
-    def test_call_openai_vision_detects_jpeg_mime(self, mock_openai_cls):
-        mock_client = MagicMock()
-        mock_openai_cls.return_value = mock_client
-        mock_choice = MagicMock()
-        mock_choice.message.content = '{"item_name": "Test"}'
-        mock_client.chat.completions.create.return_value = MagicMock(
-            choices=[mock_choice]
-        )
+    @patch("size_spec_extractor.llm.make_http_chat_request")
+    def test_call_openai_vision_detects_jpeg_mime(self, mock_http_request):
+        mock_http_request.return_value = {
+            "choices": [{"message": {"content": '{"item_name": "Test"}'}}]
+        }
 
         # Base64 starting with /9j/ is JPEG
         call_openai_vision(
             image_b64="/9j/4AAQSkZJRg==",
             api_key="sk-test",
         )
-        call_args = mock_client.chat.completions.create.call_args
-        messages = call_args[1]["messages"]
+        call_args = mock_http_request.call_args
+        payload = call_args[0][2]
+        messages = payload["messages"]
         image_url = messages[0]["content"][1]["image_url"]["url"]
         self.assertTrue(image_url.startswith("data:image/jpeg;base64,"))
+
+    def test_get_chat_completions_endpoint(self):
+        self.assertEqual(
+            get_chat_completions_endpoint(),
+            "https://api.openai.com/v1/chat/completions",
+        )
+        self.assertEqual(
+            get_chat_completions_endpoint("https://cloud.olakrutrim.com/v1"),
+            "https://cloud.olakrutrim.com/v1/chat/completions",
+        )
+        self.assertEqual(
+            get_chat_completions_endpoint(
+                "https://cloud.olakrutrim.com/v1/chat/completions"
+            ),
+            "https://cloud.olakrutrim.com/v1/chat/completions",
+        )
+        self.assertEqual(
+            get_chat_completions_endpoint("https://api.custom.com"),
+            "https://api.custom.com/v1/chat/completions",
+        )
 
     @patch("size_spec_extractor.llm.call_openai_vision")
     def test_extractor_extract_end_to_end_final_step(self, mock_call):
