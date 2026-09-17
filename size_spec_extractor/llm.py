@@ -413,17 +413,24 @@ def extract_with_llm(
     if not enabled:
         return None, None
 
-    api_key = (getattr(llm_cfg, "api_key", None) or env_vars["OPENAI_API_KEY"]).strip()
+    if getattr(llm_cfg, "api_key", None) is not None:
+        api_key = (llm_cfg.api_key or "").strip()
+    else:
+        api_key = (env_vars.get("OPENAI_API_KEY", "") or "").strip()
+
     if not api_key:
         print("[*] Skipping LLM extraction: OPENAI_API_KEY not configured in .env")
         return None, None
 
-    base_url = (
-        getattr(llm_cfg, "base_url", None) or env_vars["OPENAI_BASE_URL"]
-    ).strip() or None
-    model = (
-        getattr(llm_cfg, "model", None) or env_vars["OPENAI_MODEL"]
-    ).strip() or "gemma-4-31b-it"
+    if getattr(llm_cfg, "base_url", None) is not None:
+        base_url = (llm_cfg.base_url or "").strip() or None
+    else:
+        base_url = (env_vars.get("OPENAI_BASE_URL", "") or "").strip() or None
+
+    if getattr(llm_cfg, "model", None) is not None and str(llm_cfg.model).strip():
+        model = str(llm_cfg.model).strip()
+    else:
+        model = (env_vars.get("OPENAI_MODEL", "") or "").strip() or "gpt-4o"
     prompt = getattr(llm_cfg, "prompt", None) or DEFAULT_LLM_PROMPT
     result_filename = (
         getattr(llm_cfg, "result_filename", "result.json") or "result.json"
