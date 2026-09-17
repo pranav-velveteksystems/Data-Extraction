@@ -118,7 +118,7 @@ def load_llm_env(env_path: Path | str | None = None) -> dict[str, str]:
     return {
         "OPENAI_API_KEY": resolve_val("OPENAI_API_KEY"),
         "OPENAI_BASE_URL": resolve_val("OPENAI_BASE_URL"),
-        "OPENAI_MODEL": resolve_val("OPENAI_MODEL", "gemma-4-31b-it"),
+        "OPENAI_MODEL": resolve_val("OPENAI_MODEL", "ag/gemini-3.7-flash-low(low)"),
     }
 
 
@@ -304,7 +304,7 @@ def call_openai_vision(
     prompt: str = DEFAULT_LLM_PROMPT,
     api_key: str | None = None,
     base_url: str | None = None,
-    model: str = "gemma-4-31b-it",
+    model: str = "ag/gemini-3.7-flash-low(low)",
 ) -> str:
     """Call OpenAI Chat Completions API with vision input.
 

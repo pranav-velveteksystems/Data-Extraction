@@ -53,12 +53,12 @@ class TestLLMExtraction(unittest.TestCase):
         with open(env_file, "w", encoding="utf-8") as f:
             f.write("OPENAI_API_KEY=test_key_123\n")
             f.write("OPENAI_BASE_URL=https://custom.api.com/v1\n")
-            f.write("OPENAI_MODEL=gemma-4-31b-it-mini\n")
+            f.write("OPENAI_MODEL=ag/gemini-3.7-flash-low(low)-mini\n")
 
         env = load_llm_env(env_path=env_file)
         self.assertEqual(env["OPENAI_API_KEY"], "test_key_123")
         self.assertEqual(env["OPENAI_BASE_URL"], "https://custom.api.com/v1")
-        self.assertEqual(env["OPENAI_MODEL"], "gemma-4-31b-it-mini")
+        self.assertEqual(env["OPENAI_MODEL"], "ag/gemini-3.7-flash-low(low)-mini")
 
     def test_encode_image_to_base64(self):
         # File path
@@ -154,7 +154,7 @@ class TestLLMExtraction(unittest.TestCase):
         cfg = LLMConfig(
             enabled=True,
             api_key="sk-mock-key",
-            model="gemma-4-31b-it",
+            model="ag/gemini-3.7-flash-low(low)",
             result_filename="result.json",
         )
 
@@ -218,7 +218,7 @@ class TestLLMExtraction(unittest.TestCase):
                 self.sample_img_path,
                 "--no-llm",
                 "--llm-model",
-                "gemma-4-31b-it-mini",
+                "ag/gemini-3.7-flash-low(low)-mini",
                 "--llm-base-url",
                 "https://api.openai.com/v1",
                 "--llm-api-key",
@@ -228,7 +228,7 @@ class TestLLMExtraction(unittest.TestCase):
             ]
         )
         self.assertFalse(args.llm_enabled)
-        self.assertEqual(args.llm_model, "gemma-4-31b-it-mini")
+        self.assertEqual(args.llm_model, "ag/gemini-3.7-flash-low(low)-mini")
         self.assertEqual(args.llm_base_url, "https://api.openai.com/v1")
         self.assertEqual(args.llm_api_key, "test-cli-key")
         self.assertEqual(args.result_filename, "custom_result.json")
@@ -254,7 +254,7 @@ class TestLLMExtraction(unittest.TestCase):
                 "--llm-api-key",
                 "sk-cli-test-key",
                 "--llm-model",
-                "gemma-4-31b-it",
+                "ag/gemini-3.7-flash-low(low)",
             ]
         )
         self.assertEqual(exit_code, 0)
